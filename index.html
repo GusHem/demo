@@ -1,1407 +1,1013 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { motion, AnimatePresence, useDragControls } from 'framer-motion';
-import { 
-  Command, 
-  FileText, 
-  Mic, 
-  LayoutTemplate, 
-  AlertTriangle, 
-  X, 
-  ChevronLeft, 
-  Sparkles, 
-  ShieldCheck, 
-  Copy,
-  Check,
-  Play,
-  Pause,
-  Clock,
-  Calendar,
-  User,
-  MoreHorizontal,
-  ChevronRight,
-  Scale, // För Lagstöd
-  ScrollText, // För Journal
-  ShieldAlert, // För FREDA
-  Search,
-  Moon,
-  Sun,
-  GripHorizontal
-} from 'lucide-react';
-
-/**
- * ============================================
- * NORDSYM BBIC-AI DOSA v4.3 - QUANTUM EDITION
- * ============================================
- * * En 'Ambient AI Companion' för socialtjänsten.
- * * Nyheter v4.3 (Brand DNA):
- * - Particle System Background
- * - Cyan/Turquoise Color Palette Shift
- * - Orbital Rings Animation
- * - Grid Pattern & Deep Gradients
- */
-
-// --- ASSETS ---
-const LOGO_URL = "https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg";
-
-// --- TYPES & INTERFACES ---
-
-type ViewState = 'idle' | 'input' | 'analyzing' | 'result' | 'transcribe' | 'cases' | 'onboarding' | 'law' | 'freda' | 'journal';
-
-interface CaseData {
-  id: string;
-  name: string;
-  age: number;
-  status: 'critical' | 'attention' | 'track';
-  progress: number;
-  daysActive: number;
-  deadlineDays: number;
-}
-
-// --- MOCK DATA ---
-
-const EXAMPLE_CASE_TEXT = `Skolan har kontaktat oss angående Marcus, 9 år. Läraren beskriver att Marcus ofta kommer till skolan utan frukost och har vid flera tillfällen somnat under lektionerna. Han har också visat aggressivt beteende mot klasskamrater. Föräldrarna har inte svarat på skolans kontaktförsök.`;
-
-const LAW_RESULTS = [
-  { code: '6 § LVU', title: 'Omedelbart omhändertagande', desc: 'Socialnämnden får besluta om att den som är under 20 år omedelbart skall omhändertas.' },
-  { code: '14 kap. 1 § SoL', title: 'Anmälan om missförhållanden', desc: 'Myndigheter är skyldiga att genast anmäla till socialnämnden om de får kännedom om barn som far illa.' },
-  { code: '11 kap. 1 § SoL', title: 'Utredning', desc: 'Socialnämnden ska utan dröjsmål inleda utredning av vad som genom ansökan eller på annat sätt har kommit till nämndens kännedom.' }
-];
-
-const ANALYSIS_RESULT = {
-  scores: [
-    { area: 'Barnets utveckling', score: 80, color: '#F4A261', side: 'left' }, 
-    { area: 'Föräldraförmåga', score: 60, color: '#0891b2', side: 'right' }, // Cyan-600
-    { area: 'Familj & Miljö', score: 30, color: '#6B9080', side: 'bottom' }
-  ],
-  flags: [
-    { text: 'utan frukost', category: 'Grundläggande omsorg' },
-    { text: 'aggressivt beteende', category: 'Psykisk hälsa' },
-    { text: 'inte svarat', category: 'Brustet samarbete' }
-  ],
-  recommendation: 'Baserat på indikatorerna bör utredningen fördjupas kring skolsituationen och hemförhållandena. En prioritering är att boka ett enskilt samtal med pojken för att fånga barnets perspektiv, samt göra ett hembesök.'
-};
-
-const TRANSCRIPT_MOCK = [
-  { speaker: 'SS', text: 'Tack för att ni kom idag. Jag vill börja med att fråga hur ni upplever situationen hemma just nu?' },
-  { speaker: 'VH1', text: 'Ja alltså, vi har ju märkt att han verkar väldigt trött på morgnarna. Det är svårt att få upp honom.' },
-  { speaker: 'SS', text: 'När ni säger svårt att få upp honom, hur brukar det gå till?' },
-  { speaker: 'VH2', text: 'Han vill inte gå upp. Han säger att han har ont i magen ofta.' }
-];
-
-const CASES_MOCK: CaseData[] = [
-  { id: '1', name: 'Marcus L', age: 9, status: 'attention', progress: 39, daysActive: 47, deadlineDays: 73 },
-  { id: '2', name: 'Sara K', age: 14, status: 'track', progress: 85, daysActive: 108, deadlineDays: 12 },
-  { id: '3', name: 'Familjen A', age: 0, status: 'critical', progress: 15, daysActive: 125, deadlineDays: -5 }
-];
-
-const ANALYSIS_STEPS = [
-  'Läser anmälningstext...',
-  'Extraherar nyckelord och entiteter...',
-  'Mappar mot BBIC-triangeln...',
-  'Identifierar riskindikatorer...',
-  'Genererar beslutsunderlag...'
-];
-
-// --- VISUAL FX COMPONENTS ---
-
-const ParticleField = ({ isDark }: { isDark: boolean }) => {
-  // Generate consistent random positions
-  const particles = useMemo(() => Array.from({ length: isDark ? 25 : 15 }).map(() => ({
-    left: Math.random() * 100,
-    top: 100 + Math.random() * 20,
-    duration: 15 + Math.random() * 15,
-    delay: Math.random() * 5,
-    xDrift: (Math.random() - 0.5) * 50
-  })), [isDark]);
-
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-      {particles.map((p, i) => (
-        <motion.div
-          key={i}
-          className={`absolute w-1 h-1 rounded-full ${isDark ? 'bg-cyan-400/20' : 'bg-cyan-600/10'}`}
-          style={{
-            left: `${p.left}%`,
-            top: `${p.top}%`,
-          }}
-          animate={{
-            y: [0, -window.innerHeight - 100],
-            x: [0, p.xDrift],
-            opacity: [0, isDark ? 0.4 : 0.2, 0],
-          }}
-          transition={{
-            duration: p.duration,
-            repeat: Infinity,
-            delay: p.delay,
-            ease: "linear"
-          }}
-        />
-      ))}
-    </div>
-  );
-};
-
-const OrbitalRings = ({ isDark }: { isDark: boolean }) => (
-  <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-    <motion.div 
-      className={`absolute w-32 h-32 rounded-full border border-dashed ${isDark ? 'border-cyan-500/20' : 'border-cyan-600/10'}`}
-      animate={{ rotate: 360 }}
-      transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-    />
-    <motion.div 
-      className={`absolute w-40 h-40 rounded-full border border-dotted ${isDark ? 'border-cyan-400/10' : 'border-cyan-600/5'}`}
-      animate={{ rotate: -360 }}
-      transition={{ duration: 35, repeat: Infinity, ease: "linear" }}
-    />
-  </div>
-);
-
-// --- UTILITY COMPONENTS ---
-
-const NordSymLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
-  <img 
-    src={LOGO_URL} 
-    alt="NordSym Logo" 
-    className={className}
-    draggable={false}
-  />
-);
-
-const StreamingText = ({ text, speed = 20, delay = 0, onComplete, isDark }: { text: string, speed?: number, delay?: number, onComplete?: () => void, isDark?: boolean }) => {
-  const [displayed, setDisplayed] = useState('');
-  const [started, setStarted] = useState(false);
-
-  useEffect(() => {
-    const startTimeout = setTimeout(() => {
-      setStarted(true);
-    }, delay);
-    return () => clearTimeout(startTimeout);
-  }, [delay]);
-
-  useEffect(() => {
-    if (!started) return;
-    let i = 0;
-    const interval = setInterval(() => {
-      setDisplayed(text.slice(0, i));
-      i++;
-      if (i > text.length) {
-        clearInterval(interval);
-        if (onComplete) onComplete();
-      }
-    }, speed);
-    return () => clearInterval(interval);
-  }, [text, speed, started, onComplete]);
-
-  return <span>{displayed}{displayed.length < text.length && <span className={`animate-pulse ml-0.5 inline-block w-1.5 h-3 ${isDark ? 'bg-cyan-400/60' : 'bg-cyan-600/60'} align-middle`}></span>}</span>;
-};
-
-// --- VISUALIZATION COMPONENTS ---
-
-const BBICTriangle = ({ scores, isDark }: { scores: typeof ANALYSIS_RESULT.scores, isDark: boolean }) => {
-  const strokeColor = isDark ? "#374151" : "#E5E7EB";
-  const fillColor = isDark ? "#111827" : "#F8F9FA";
-
-  return (
-    <div className="relative w-48 h-40 mx-auto my-4">
-      <svg viewBox="0 0 200 180" className="w-full h-full drop-shadow-lg">
-        <polygon points="100,10 190,170 10,170" fill={fillColor} stroke={strokeColor} strokeWidth="2" />
-        
-        <motion.line 
-          x1="100" y1="10" x2="10" y2="170"
-          stroke={scores[0].color} strokeWidth="6" strokeLinecap="round"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: scores[0].score / 100 }}
-          transition={{ duration: 1.5, delay: 0.5, ease: "easeOut" }}
-        />
-        <motion.line 
-          x1="100" y1="10" x2="190" y2="170"
-          stroke={scores[1].color} strokeWidth="6" strokeLinecap="round"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: scores[1].score / 100 }}
-          transition={{ duration: 1.5, delay: 0.8, ease: "easeOut" }}
-        />
-        <motion.line 
-          x1="10" y1="170" x2="190" y2="170"
-          stroke={scores[2].color} strokeWidth="6" strokeLinecap="round"
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: scores[2].score / 100 }}
-          transition={{ duration: 1.5, delay: 1.1, ease: "easeOut" }}
-        />
-
-        <motion.circle 
-          cx="100" cy="115" r="8"
-          fill="#F4A261" 
-          animate={{ scale: [1, 1.2, 1], opacity: [0.8, 1, 0.8] }}
-          transition={{ repeat: Infinity, duration: 2 }}
-        />
-      </svg>
-      
-      <div className={`absolute top-0 left-1/2 -translate-x-1/2 -translate-y-5 text-[10px] font-bold whitespace-nowrap ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Barnets utveckling</div>
-      <div className={`absolute bottom-0 left-0 -translate-x-2 translate-y-5 text-[10px] font-bold max-w-[80px] text-center leading-tight ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Familj & Miljö</div>
-      <div className={`absolute bottom-0 right-0 translate-x-2 translate-y-5 text-[10px] font-bold max-w-[80px] text-center leading-tight ${isDark ? 'text-gray-400' : 'text-gray-500'}`}>Föräldraförmåga</div>
-    </div>
-  );
-};
-
-const AnalysisProcess = ({ onComplete, isDark }: { onComplete: () => void, isDark: boolean }) => {
-  const [currentStep, setCurrentStep] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setCurrentStep(prev => {
-        if (prev >= ANALYSIS_STEPS.length - 1) {
-          clearInterval(interval);
-          setTimeout(onComplete, 600);
-          return prev;
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NordSym BBIC-AI Dosa v4.5</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        cyan: {
+                            50: '#cffafe',
+                            400: '#22d3ee',
+                            500: '#06b6d4',
+                            600: '#0891b2', // Primary
+                            700: '#0e7490',
+                            800: '#155e75',
+                            900: '#164e63', // Dark primary
+                            950: '#083344',
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+                        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', "Liberation Mono", "Courier New", 'monospace'],
+                    }
+                }
+            }
         }
-        return prev + 1;
-      });
-    }, 800);
-    return () => clearInterval(interval);
-  }, [onComplete]);
-
-  return (
-    <div className="flex flex-col items-start justify-center py-8 px-6 w-full">
-      <div className="mb-6 flex items-center gap-3">
-        <div className="relative w-8 h-8 flex items-center justify-center">
-           <motion.div 
-             className={`absolute w-full h-full rounded-full ${isDark ? 'bg-cyan-400/20' : 'bg-cyan-600/20'}`}
-             animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-             transition={{ duration: 2, repeat: Infinity }}
-           />
-           <NordSymLogo className="w-6 h-6 relative z-10" />
-        </div>
-        <span className={`font-semibold text-lg ${isDark ? 'text-cyan-400' : 'text-cyan-700'}`}>Analyserar ärende...</span>
-      </div>
-
-      <div className="space-y-4 w-full">
-        {ANALYSIS_STEPS.map((step, index) => (
-          <div key={index} className="flex items-center gap-3 text-sm">
-            <div className="w-5 flex justify-center">
-              {index < currentStep ? (
-                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}>
-                  <Check size={16} className={isDark ? "text-green-400" : "text-[#6B9080]"} />
-                </motion.div>
-              ) : index === currentStep ? (
-                <motion.div 
-                  className={`w-2 h-2 rounded-full ${isDark ? 'bg-cyan-400' : 'bg-cyan-600'}`}
-                  animate={{ scale: [1, 1.5, 1] }}
-                  transition={{ repeat: Infinity, duration: 1 }}
-                />
-              ) : (
-                <div className={`w-2 h-2 rounded-full ${isDark ? 'bg-gray-700' : 'bg-gray-200'}`} />
-              )}
-            </div>
-            <span className={`transition-colors duration-300 ${
-              index <= currentStep 
-                ? (isDark ? 'text-gray-100' : 'text-gray-800') 
-                : (isDark ? 'text-gray-600' : 'text-gray-300')
-            }`}>
-              {step}
-            </span>
-          </div>
-        ))}
-      </div>
-      
-      <div className={`w-full h-1 mt-8 rounded-full overflow-hidden ${isDark ? 'bg-gray-700' : 'bg-gray-100'}`}>
-        <motion.div 
-          className={`h-full ${isDark ? 'bg-cyan-400' : 'bg-cyan-600'}`}
-          initial={{ width: "0%" }}
-          animate={{ width: `${((currentStep + 1) / ANALYSIS_STEPS.length) * 100}%` }}
-          transition={{ duration: 0.5 }}
-        />
-      </div>
-    </div>
-  );
-};
-
-const Waveform = ({ isPlaying, isDark }: { isPlaying: boolean, isDark: boolean }) => (
-  <div className="flex items-center justify-center gap-0.5 h-8 w-full px-4">
-    {[...Array(30)].map((_, i) => (
-      <motion.div
-        key={i}
-        className={`w-1 rounded-full opacity-60 ${isDark ? 'bg-cyan-400' : 'bg-cyan-600'}`}
-        animate={{ 
-          height: isPlaying ? [4, Math.random() * 24 + 4, 4] : 4 
-        }}
-        transition={{ 
-          duration: 0.5, 
-          repeat: Infinity, 
-          delay: i * 0.05,
-          ease: "easeInOut" 
-        }}
-      />
-    ))}
-  </div>
-);
-
-// --- MAIN DOSA COMPONENT ---
-
-const Dosa = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => {
-  const [view, setView] = useState<ViewState>('onboarding');
-  const [inputText, setInputText] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [transcriptIndex, setTranscriptIndex] = useState(0);
-  const [lawSearch, setLawSearch] = useState('');
-  const [isDarkMode, setIsDarkMode] = useState(false);
-  
-  const dragControls = useDragControls();
-  
-  // Reset logic
-  useEffect(() => {
-    if (!isOpen) {
-      setTimeout(() => {
-        setView(v => v === 'onboarding' ? 'onboarding' : 'idle');
-        setInputText('');
-        setIsTranscribing(false);
-        setTranscriptIndex(0);
-        setLawSearch('');
-      }, 300);
-    }
-  }, [isOpen]);
-
-  // Keyboard Navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-      if (e.key === 'Escape') {
-        if (view === 'idle') onClose();
-        else setView('idle');
-      }
-      if (e.metaKey || e.ctrlKey) {
-        if (e.key === '1') setView('input');
-        if (e.key === '2') setView('transcribe');
-        if (e.key === '3') setView('cases');
-        if (e.key === '4') setView('law');
-        if (e.key === '5') setView('freda');
-        if (e.key === '6') setView('journal');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, view, onClose]);
-
-  // Transcribe simulation
-  useEffect(() => {
-    let interval: any;
-    if (isTranscribing && transcriptIndex < TRANSCRIPT_MOCK.length) {
-      interval = setTimeout(() => {
-        setTranscriptIndex(prev => prev + 1);
-      }, 2500); 
-    } else if (transcriptIndex >= TRANSCRIPT_MOCK.length) {
-      setIsTranscribing(false);
-    }
-    return () => clearTimeout(interval);
-  }, [isTranscribing, transcriptIndex]);
-
-  // --- CLIPBOARD FIX ---
-  const handleCopy = (text: string) => {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text)
-        .then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        })
-        .catch(() => fallbackCopyTextToClipboard(text));
-    } else {
-      fallbackCopyTextToClipboard(text);
-    }
-  };
-
-  const fallbackCopyTextToClipboard = (text: string) => {
-    const textArea = document.createElement("textarea");
-    textArea.value = text;
-    textArea.style.top = "0";
-    textArea.style.left = "0";
-    textArea.style.position = "fixed";
-    textArea.style.opacity = "0";
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    try {
-      const successful = document.execCommand('copy');
-      if (successful) {
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }
-    } catch (err) {
-      console.error('Fallback failed', err);
-    }
-    document.body.removeChild(textArea);
-  };
-
-  const startAnalysis = () => {
-    if (!inputText) return;
-    setView('analyzing');
-  };
-
-  // --- THEME CLASSES (CYAN/TURQUOISE SHIFT) ---
-  const theme = {
-    bg: isDarkMode ? 'bg-gray-900' : 'bg-white',
-    bgSoft: isDarkMode ? 'bg-gray-800' : 'bg-gray-50',
-    bgHover: isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50',
-    text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
-    textSoft: isDarkMode ? 'text-gray-400' : 'text-gray-500',
-    border: isDarkMode ? 'border-gray-800' : 'border-gray-200/60',
-    inputBg: isDarkMode ? 'bg-gray-800' : 'bg-gray-50',
-    inputBorder: isDarkMode ? 'border-gray-700' : 'border-gray-200',
-    headerBg: isDarkMode ? 'bg-gray-900/80' : 'bg-white/80',
-    headerBorder: isDarkMode ? 'border-gray-800' : 'border-gray-100',
-    footerBg: isDarkMode ? 'bg-gray-900' : 'bg-gray-50',
-    footerBorder: isDarkMode ? 'border-gray-800' : 'border-gray-100',
-    primaryText: isDarkMode ? 'text-cyan-400' : 'text-cyan-700',
-    primaryBg: isDarkMode ? 'bg-cyan-600' : 'bg-cyan-600', // Unified Cyan
-    cardBg: isDarkMode ? 'bg-gray-800' : 'bg-white',
-    cardBorder: isDarkMode ? 'border-gray-700' : 'border-gray-100',
-  };
-
-  // --- MENU BUTTON COMPONENT ---
-  const MenuButton = ({ icon: Icon, title, desc, shortcut, onClick, colorClass }: any) => (
-    <button onClick={onClick} className={`w-full flex flex-col items-start p-3 rounded-xl ${theme.bgHover} transition-all group active:scale-[0.98] border border-transparent ${isDarkMode ? 'hover:border-gray-700' : 'hover:border-gray-100'}`}>
-      <div className="flex justify-between w-full items-start mb-2">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${colorClass}`}>
-          <Icon size={16} />
-        </div>
-        <span className={`text-[10px] font-mono mt-1 ${isDarkMode ? 'text-gray-500 group-hover:text-gray-300' : 'text-gray-300 group-hover:text-gray-400'}`}>{shortcut}</span>
-      </div>
-      <span className={`text-sm font-semibold leading-tight mb-1 ${isDarkMode ? 'text-gray-200 group-hover:text-white' : 'text-gray-700 group-hover:text-gray-900'}`}>{title}</span>
-      <p className={`text-[10px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>{desc}</p>
-    </button>
-  );
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          {/* Backdrop (Click to close) with Depth Blur */}
-          <motion.div 
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className={`fixed inset-0 z-40 ${isDarkMode ? 'bg-black/20 backdrop-blur-sm' : 'bg-black/10 backdrop-blur-[1px]'}`} 
-          />
-
-          {/* Dosa Container (Draggable) */}
-          <motion.div
-            layout
-            drag
-            dragListener={false}
-            dragControls={dragControls}
-            dragMomentum={false}
-            dragElastic={0.1}
-            initial={{ opacity: 0, scale: 0.95, y: -20, x: "-50%" }}
-            animate={{ opacity: 1, scale: 1, y: 100, x: "-50%" }}
-            exit={{ opacity: 0, scale: 0.95, y: -10, x: "-50%" }}
-            transition={{ type: "spring", stiffness: 350, damping: 30 }}
-            className={`fixed top-0 left-1/2 w-[520px] rounded-2xl shadow-2xl border z-50 overflow-hidden flex flex-col ${theme.bg} ${theme.border}`}
-            style={{ maxHeight: '85vh', position: 'fixed' }}
-          >
-            {/* Header (Drag Handle) */}
-            <div 
-              onPointerDown={(e) => dragControls.start(e)}
-              className={`h-11 flex items-center justify-between px-4 border-b backdrop-blur-md select-none sticky top-0 z-10 cursor-grab active:cursor-grabbing ${theme.headerBg} ${theme.headerBorder}`}
-            >
-              <div className="flex gap-1.5 group p-1" onPointerDown={(e) => e.stopPropagation()} onClick={onClose}>
-                <div className="w-2.5 h-2.5 rounded-full bg-red-400/20 group-hover:bg-red-500 transition-colors" />
-                <div className="w-2.5 h-2.5 rounded-full bg-yellow-400/20 group-hover:bg-yellow-500 transition-colors" />
-                <div className="w-2.5 h-2.5 rounded-full bg-green-400/20 group-hover:bg-green-500 transition-colors" />
-              </div>
-              
-              <div className="flex items-center gap-1.5 opacity-80">
-                 <NordSymLogo className="w-3.5 h-3.5" />
-                 <span className={`text-[10px] font-semibold uppercase tracking-widest ${theme.textSoft}`}>NordSym AI</span>
-              </div>
-
-              <div className="flex items-center gap-3" onPointerDown={(e) => e.stopPropagation()}>
-                <button 
-                  onClick={() => setIsDarkMode(!isDarkMode)}
-                  className={`p-1.5 rounded-md transition-colors ${theme.bgHover} ${theme.textSoft}`}
-                >
-                  {isDarkMode ? <Sun size={12} /> : <Moon size={12} />}
-                </button>
-                {view !== 'idle' && view !== 'onboarding' && (
-                  <kbd className={`text-[9px] font-sans px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>ESC</kbd>
-                )}
-              </div>
-            </div>
-
-            {/* Main Content Area */}
-            <div className={`p-2 relative min-h-[400px] ${theme.bg}`}>
-              <AnimatePresence mode="wait">
-                
-                {/* VIEW: ONBOARDING (ORBITAL EDITION) */}
-                {view === 'onboarding' && (
-                  <motion.div
-                    key="onboarding"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="flex flex-col items-center justify-center h-[380px] p-6 text-center relative overflow-hidden"
-                  >
-                    <OrbitalRings isDark={isDarkMode} />
-                    
-                    <motion.div 
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ delay: 0.1 }}
-                      className="relative w-24 h-24 flex items-center justify-center mb-6 z-10"
-                    >
-                      <motion.div 
-                        className={`absolute inset-0 rounded-full blur-xl ${isDarkMode ? 'bg-cyan-500/20' : 'bg-cyan-600/10'}`}
-                        animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.3, 0.6, 0.3] }}
-                        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-                      />
-                      <NordSymLogo className="w-20 h-20 relative z-10 drop-shadow-sm" />
-                    </motion.div>
-
-                    <h2 className={`text-xl font-bold mb-2 relative z-10 ${theme.text}`}>Välkommen till NordSym</h2>
-                    <p className={`text-sm mb-8 max-w-[280px] leading-relaxed relative z-10 ${theme.textSoft}`}>
-                      Din intelligenta assistent för BBIC-utredningar. Jag hjälper dig analysera, dokumentera och minnas.
-                    </p>
-                    <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setView('idle')}
-                      className={`${theme.primaryBg} text-white px-8 py-3 rounded-xl font-medium text-sm shadow-lg shadow-cyan-900/10 hover:shadow-cyan-900/20 transition-all flex items-center gap-2 relative z-10`}
-                    >
-                      Kom igång <ChevronRight size={16} />
-                    </motion.button>
-                    <button
-                      onClick={() => setView('idle')}
-                      className={`mt-4 text-[10px] hover:text-gray-600 transition-colors relative z-10 ${theme.textSoft}`}
-                    >
-                      Hoppa över introduktion
-                    </button>
-                  </motion.div>
-                )}
-
-                {/* VIEW: IDLE (GRID MENU) */}
-                {view === 'idle' && (
-                  <motion.div 
-                    key="idle"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="p-2"
-                  >
-                    <div className="relative mb-4 group">
-                      <input 
-                        type="text" 
-                        placeholder="Hur kan jag hjälpa dig idag?"
-                        className={`w-full text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 transition-all shadow-sm ${theme.inputBg} ${theme.inputBorder} ${theme.text} placeholder-gray-400 focus:ring-cyan-500/20`}
-                        autoFocus
-                      />
-                      <div className={`absolute right-3 top-3.5 text-[10px] border rounded px-1.5 py-0.5 ${theme.inputBorder} ${theme.textSoft}`}>⌘K</div>
-                    </div>
-                    
-                    <p className={`px-3 text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textSoft}`}>Verktyg</p>
-                    
-                    <div className="grid grid-cols-2 gap-2">
-                      <MenuButton 
-                        icon={FileText} 
-                        title="Analysera anmälan" 
-                        desc="BBIC-mappning & risk" 
-                        shortcut="⌘1"
-                        colorClass={isDarkMode ? "bg-cyan-900/30 text-cyan-400 group-hover:bg-cyan-600 group-hover:text-white" : "bg-cyan-50 text-cyan-700 group-hover:bg-cyan-600 group-hover:text-white"}
-                        onClick={() => setView('input')} 
-                      />
-                      <MenuButton 
-                        icon={Mic} 
-                        title="Transkribera möte" 
-                        desc="Spela in & sammanfatta" 
-                        shortcut="⌘2"
-                        colorClass={isDarkMode ? "bg-purple-900/30 text-purple-400 group-hover:bg-purple-600 group-hover:text-white" : "bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white"}
-                        onClick={() => setView('transcribe')} 
-                      />
-                      <MenuButton 
-                        icon={LayoutTemplate} 
-                        title="Aktiva ärenden" 
-                        desc="Status & deadlines" 
-                        shortcut="⌘3"
-                        colorClass={isDarkMode ? "bg-green-900/30 text-green-400 group-hover:bg-green-600 group-hover:text-white" : "bg-green-50 text-[#6B9080] group-hover:bg-[#6B9080] group-hover:text-white"}
-                        onClick={() => setView('cases')} 
-                      />
-                      <MenuButton 
-                        icon={Scale} 
-                        title="Lagstöd (SoL/LVU)" 
-                        desc="Sök paragrafer & praxis" 
-                        shortcut="⌘4"
-                        colorClass={isDarkMode ? "bg-gray-700 text-gray-300 group-hover:bg-gray-600 group-hover:text-white" : "bg-gray-100 text-gray-600 group-hover:bg-gray-700 group-hover:text-white"}
-                        onClick={() => setView('law')} 
-                      />
-                      <MenuButton 
-                        icon={ShieldAlert} 
-                        title="FREDA-Screening" 
-                        desc="Snabbkoll våldsutsatthet" 
-                        shortcut="⌘5"
-                        colorClass={isDarkMode ? "bg-red-900/30 text-red-400 group-hover:bg-red-600 group-hover:text-white" : "bg-red-50 text-red-500 group-hover:bg-red-500 group-hover:text-white"}
-                        onClick={() => setView('freda')} 
-                      />
-                      <MenuButton 
-                        icon={ScrollText} 
-                        title="Generera Journal" 
-                        desc="Sammanfatta anteckningar" 
-                        shortcut="⌘6"
-                        colorClass={isDarkMode ? "bg-orange-900/30 text-orange-400 group-hover:bg-orange-600 group-hover:text-white" : "bg-orange-50 text-orange-500 group-hover:bg-orange-500 group-hover:text-white"}
-                        onClick={() => setView('journal')} 
-                      />
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* VIEW: INPUT (ANALYZE) */}
-                {view === 'input' && (
-                  <motion.div 
-                    key="input"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="p-2 h-full flex flex-col"
-                  >
-                    <div className={`flex items-center gap-2 mb-3 px-1 ${theme.textSoft}`}>
-                      <button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button>
-                      <span className={`text-sm font-semibold ${theme.text}`}>Ny anmälningsanalys</span>
-                    </div>
-
-                    <div className="relative flex-1">
-                      <textarea
-                        value={inputText}
-                        onChange={(e) => setInputText(e.target.value)}
-                        placeholder="Klistra in text från orosanmälan..."
-                        className={`w-full h-48 rounded-xl p-4 text-sm focus:outline-none focus:ring-2 resize-none transition-shadow ${theme.inputBg} ${theme.inputBorder} ${theme.text} focus:ring-cyan-500/20`}
-                        autoFocus
-                      />
-                      {inputText.length === 0 && (
-                        <motion.button
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          onClick={() => setInputText(EXAMPLE_CASE_TEXT)}
-                          className={`absolute bottom-4 right-4 text-xs px-3 py-1.5 rounded-lg border shadow-sm font-medium transition-all ${isDarkMode ? 'bg-gray-800 border-gray-700 text-cyan-400 hover:bg-gray-700' : 'bg-white border-gray-200 text-cyan-700 hover:bg-cyan-50'}`}
-                        >
-                          Klistra in exempel
-                        </motion.button>
-                      )}
-                    </div>
-
-                    <motion.button
-                      whileHover={{ scale: 1.01 }}
-                      whileTap={{ scale: 0.99 }}
-                      onClick={startAnalysis}
-                      disabled={!inputText}
-                      className={`w-full mt-3 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-sm
-                        ${inputText 
-                          ? `${theme.primaryBg} text-white hover:opacity-90 shadow-cyan-900/10` 
-                          : `${isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'} cursor-not-allowed`}`}
-                    >
-                      {inputText ? <NordSymLogo className="w-4 h-4" /> : <Sparkles size={16} />}
-                      Analysera med BBIC-AI
-                    </motion.button>
-                  </motion.div>
-                )}
-
-                {/* VIEW: ANALYZING (PROCESS) */}
-                {view === 'analyzing' && (
-                  <motion.div 
-                    key="analyzing"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                  >
-                    <AnalysisProcess onComplete={() => setView('result')} isDark={isDarkMode} />
-                  </motion.div>
-                )}
-
-                {/* VIEW: RESULT */}
-                {view === 'result' && (
-                  <motion.div 
-                    key="result"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="p-1 max-h-[550px] overflow-y-auto scrollbar-hide"
-                  >
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}>
-                      <button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button>
-                      <span className={`text-sm font-semibold ${theme.text}`}>Analysresultat</span>
-                      <span className={`ml-auto text-[10px] px-2 py-0.5 rounded border ${isDarkMode ? 'bg-green-900/30 text-green-400 border-green-900' : 'bg-green-50 text-[#6B9080] border-green-100'}`}>AI-Förslag</span>
-                    </div>
-
-                    {/* BBIC Triangle Visualization */}
-                    <div className={`rounded-xl border shadow-sm mb-4 relative overflow-hidden ${theme.cardBg} ${theme.cardBorder}`}>
-                      <BBICTriangle scores={ANALYSIS_RESULT.scores} isDark={isDarkMode} />
-                    </div>
-
-                    {/* Recommendation Stream */}
-                    <div className={`rounded-xl p-4 border mb-4 ${isDarkMode ? 'bg-cyan-900/20 border-cyan-900/50' : 'bg-cyan-50/50 border-cyan-100'}`}>
-                      <div className={`flex items-center gap-2 mb-2 text-xs font-bold uppercase tracking-wide ${theme.primaryText}`}>
-                        <NordSymLogo className="w-3.5 h-3.5" />
-                        Rekommendation
-                      </div>
-                      <p className={`text-sm leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}>
-                        <StreamingText text={ANALYSIS_RESULT.recommendation} speed={15} isDark={isDarkMode} />
-                      </p>
-                    </div>
-
-                    {/* Flags */}
-                    <div className="mb-4 space-y-2">
-                      <p className={`text-[10px] font-bold uppercase tracking-wide px-1 ${theme.textSoft}`}>Riskindikatorer</p>
-                      {ANALYSIS_RESULT.flags.map((flag, i) => (
-                        <motion.div 
-                          key={i}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 1.5 + (i * 0.2) }}
-                          className={`flex items-start gap-3 p-3 rounded-lg border shadow-sm ${theme.cardBg} ${theme.cardBorder}`}
-                        >
-                          <AlertTriangle size={14} className="text-[#F4A261] mt-0.5 shrink-0" />
-                          <div className="text-xs">
-                            <span className={`font-semibold ${theme.text}`}>"{flag.text}"</span>
-                            <span className={`block mt-0.5 ${theme.textSoft}`}>{flag.category}</span>
-                          </div>
-                        </motion.div>
-                      ))}
-                    </div>
-
-                    {/* Actions */}
-                    <div className={`flex gap-2 sticky bottom-0 backdrop-blur pt-2 pb-1 border-t ${theme.footerBg}/90 ${theme.footerBorder}`}>
-                      <button onClick={() => { setView('idle'); setInputText(''); }} className={`flex-1 py-2.5 text-xs font-medium rounded-lg transition-colors ${theme.textSoft} ${theme.bgHover}`}>
-                        Ny analys
-                      </button>
-                      <motion.button 
-                        whileTap={{ scale: 0.97 }}
-                        onClick={() => handleCopy(JSON.stringify(ANALYSIS_RESULT, null, 2))}
-                        className={`flex-1 py-2.5 text-white text-xs font-medium rounded-lg hover:opacity-90 transition-colors flex items-center justify-center gap-2 relative overflow-hidden ${theme.primaryBg}`}
-                      >
-                        {copied ? <Check size={14} /> : <Copy size={14} />}
-                        {copied ? 'Kopierad' : 'Kopiera till journal'}
-                      </motion.button>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* VIEW: TRANSCRIBE */}
-                {view === 'transcribe' && (
-                  <motion.div 
-                    key="transcribe"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="p-2 h-full flex flex-col"
-                  >
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}>
-                      <button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button>
-                      <span className={`text-sm font-semibold ${theme.text}`}>Mötesassistent</span>
-                    </div>
-
-                    <div className={`rounded-xl p-6 text-center mb-4 relative overflow-hidden ${isDarkMode ? 'bg-gray-800' : 'bg-gray-900'}`}>
-                      <div className="absolute top-2 right-3 flex items-center gap-1.5">
-                        <div className={`w-2 h-2 rounded-full ${isTranscribing ? 'bg-red-500 animate-pulse' : 'bg-gray-600'}`} />
-                        <span className="text-[10px] text-gray-400 font-mono">REC</span>
-                      </div>
-                      
-                      <div className="h-12 flex items-center justify-center mb-2">
-                        {isTranscribing ? (
-                          <Waveform isPlaying={true} isDark={isDarkMode} />
-                        ) : (
-                          <span className="text-gray-500 text-xs">Redo att spela in</span>
-                        )}
-                      </div>
-                      
-                      <div className="text-2xl font-mono text-white mb-4">
-                        {isTranscribing ? '00:04:12' : '00:00:00'}
-                      </div>
-
-                      <motion.button
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                        onClick={() => {
-                          setIsTranscribing(!isTranscribing);
-                          if (!isTranscribing) setTranscriptIndex(0);
-                        }}
-                        className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto transition-colors ${isTranscribing ? 'bg-white text-gray-900' : `${theme.primaryBg} text-white`}`}
-                      >
-                         {isTranscribing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}
-                      </motion.button>
-                    </div>
-
-                    <div className={`flex-1 rounded-xl p-4 overflow-y-auto space-y-3 border ${theme.bgSoft} ${theme.border}`}>
-                       <p className={`text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textSoft}`}>Live Transkription</p>
-                       
-                       {TRANSCRIPT_MOCK.slice(0, transcriptIndex).map((msg, i) => (
-                         <motion.div 
-                          key={i}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          className="flex gap-3"
-                         >
-                           <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${msg.speaker === 'SS' ? `${theme.primaryBg} text-white` : 'bg-gray-200 text-gray-600'}`}>
-                             {msg.speaker}
-                           </div>
-                           <div className="flex-1">
-                             <p className={`text-xs leading-relaxed p-2 rounded-lg rounded-tl-none border shadow-sm ${theme.cardBg} ${theme.cardBorder} ${theme.text}`}>
-                               {msg.text}
-                             </p>
-                           </div>
-                         </motion.div>
-                       ))}
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* VIEW: CASES (ACTIVE) */}
-                {view === 'cases' && (
-                  <motion.div 
-                    key="cases"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="p-2 h-full flex flex-col"
-                  >
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}>
-                      <button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button>
-                      <span className={`text-sm font-semibold ${theme.text}`}>Mina aktiva ärenden</span>
-                    </div>
-
-                    <div className="space-y-3">
-                      {CASES_MOCK.map((c) => (
-                        <motion.div 
-                          key={c.id}
-                          whileHover={{ scale: 1.01 }}
-                          className={`p-4 rounded-xl border shadow-sm relative overflow-hidden group cursor-pointer ${theme.cardBg} ${theme.cardBorder}`}
-                        >
-                          <div className={`absolute left-0 top-0 bottom-0 w-1 ${c.status === 'critical' ? 'bg-red-500' : c.status === 'attention' ? 'bg-[#F4A261]' : 'bg-[#6B9080]'}`} />
-                          
-                          <div className="flex justify-between items-start mb-2 pl-2">
-                            <div>
-                              <h3 className={`text-sm font-bold ${theme.text}`}>{c.name}, {c.age} år</h3>
-                              <p className={`text-[11px] flex items-center gap-1 mt-0.5 ${theme.textSoft}`}>
-                                <Clock size={10} /> Dag {c.daysActive}/120 i utredning
-                              </p>
-                            </div>
-                            <div className={`px-2 py-0.5 rounded text-[10px] font-medium border ${c.status === 'critical' ? 'bg-red-500/10 text-red-500 border-red-500/20' : c.status === 'attention' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' : 'bg-green-500/10 text-green-500 border-green-500/20'}`}>
-                              {c.deadlineDays < 0 ? 'Försenad' : `${c.deadlineDays} dgr kvar`}
-                            </div>
-                          </div>
-
-                          <div className="pl-2">
-                            <div className={`flex justify-between text-[10px] mb-1 ${theme.textSoft}`}>
-                              <span>Utredningsprogress</span>
-                              <span>{c.progress}%</span>
-                            </div>
-                            <div className={`h-1.5 w-full rounded-full overflow-hidden ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}>
-                              <div 
-                                className={`h-full rounded-full ${c.status === 'critical' ? 'bg-red-500' : c.status === 'attention' ? 'bg-[#F4A261]' : 'bg-[#6B9080]'}`} 
-                                style={{ width: `${c.progress}%` }}
-                              />
-                            </div>
-                          </div>
-                          
-                          <ChevronRight className={`absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity ${theme.textSoft}`} size={16} />
-                        </motion.div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* VIEW: LAW (LAGSTÖD) */}
-                {view === 'law' && (
-                  <motion.div 
-                    key="law"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="p-2 h-full flex flex-col"
-                  >
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}>
-                      <button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button>
-                      <span className={`text-sm font-semibold ${theme.text}`}>Lagstöd & Paragrafer</span>
-                    </div>
-
-                    <div className="relative mb-4">
-                      <input 
-                        type="text" 
-                        value={lawSearch}
-                        onChange={(e) => setLawSearch(e.target.value)}
-                        placeholder="Sök i SoL och LVU..."
-                        className={`w-full border text-sm rounded-xl px-10 py-3 focus:outline-none focus:ring-2 transition-all ${theme.inputBg} ${theme.inputBorder} ${theme.text} focus:ring-cyan-500/20`}
-                        autoFocus
-                      />
-                      <Search className={`absolute left-3.5 top-3.5 ${theme.textSoft}`} size={16} />
-                    </div>
-
-                    <div className="space-y-3 overflow-y-auto max-h-[300px] p-1">
-                      {LAW_RESULTS.map((law, i) => (
-                        <div key={i} className={`p-4 rounded-xl border transition-colors cursor-pointer group ${theme.cardBg} ${theme.cardBorder} ${isDarkMode ? 'hover:border-gray-600' : 'hover:border-gray-300'}`}>
-                          <div className="flex justify-between items-start mb-1">
-                            <span className={`text-xs font-bold px-2 py-0.5 rounded ${isDarkMode ? 'bg-cyan-900/30 text-cyan-400' : 'bg-cyan-50 text-cyan-700'}`}>{law.code}</span>
-                            <ChevronRight size={14} className={`group-hover:${theme.text} ${theme.textSoft}`} />
-                          </div>
-                          <h4 className={`text-sm font-semibold mb-1 ${theme.text}`}>{law.title}</h4>
-                          <p className={`text-xs leading-relaxed ${theme.textSoft}`}>{law.desc}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* VIEW: FREDA (SCREENING) */}
-                {view === 'freda' && (
-                  <motion.div 
-                    key="freda"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="p-2 h-full flex flex-col"
-                  >
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}>
-                      <button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button>
-                      <span className={`text-sm font-semibold ${theme.text}`}>FREDA-Screening</span>
-                    </div>
-
-                    <div className={`border rounded-xl p-4 mb-4 flex items-start gap-3 ${isDarkMode ? 'bg-red-900/20 border-red-900/40' : 'bg-red-50 border-red-100'}`}>
-                      <ShieldAlert className="text-red-500 shrink-0" size={20} />
-                      <div>
-                        <h4 className="text-sm font-bold text-red-500">Standardiserad riskbedömning</h4>
-                        <p className="text-xs text-red-400 mt-1">Används för att identifiera våldsutsatthet i nära relationer.</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                       {['Har din partner förbjudit dig att träffa vänner?', 'Har din partner hotat dig?', 'Känner du dig rädd för din partner?'].map((q, i) => (
-                         <div key={i} className={`flex items-center justify-between p-3 border rounded-lg ${theme.cardBg} ${theme.cardBorder}`}>
-                           <span className={`text-sm ${theme.text}`}>{q}</span>
-                           <div className="flex gap-2">
-                             <button className={`px-3 py-1 text-xs font-medium rounded ${isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>Nej</button>
-                             <button className={`px-3 py-1 text-xs font-medium rounded ${isDarkMode ? 'bg-red-900/30 text-red-400' : 'bg-red-50 text-red-600'}`}>Ja</button>
-                           </div>
-                         </div>
-                       ))}
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* VIEW: JOURNAL (SUMMARY) */}
-                {view === 'journal' && (
-                  <motion.div 
-                    key="journal"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="p-2 h-full flex flex-col"
-                  >
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}>
-                      <button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button>
-                      <span className={`text-sm font-semibold ${theme.text}`}>Journal-sammanfattning</span>
-                    </div>
-
-                    <div className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer group ${theme.border} ${isDarkMode ? 'hover:border-cyan-400 hover:bg-cyan-900/10' : 'hover:border-cyan-600 hover:bg-cyan-50/30'}`}>
-                      <ScrollText className={`mb-2 ${isDarkMode ? 'text-gray-600 group-hover:text-cyan-400' : 'text-gray-300 group-hover:text-cyan-600'}`} size={32} />
-                      <p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400 group-hover:text-white' : 'text-gray-600 group-hover:text-gray-800'}`}>Klistra in anteckningar</p>
-                      <p className={`text-xs ${theme.textSoft}`}>eller dra och släpp textfil här</p>
-                    </div>
-
-                    <div className={`mt-4 p-4 rounded-xl ${theme.bgSoft}`}>
-                      <p className={`text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textSoft}`}>Exempel på output</p>
-                      <div className="space-y-2">
-                        <div className={`h-2 w-3/4 rounded animate-pulse ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
-                        <div className={`h-2 w-full rounded animate-pulse ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
-                        <div className={`h-2 w-5/6 rounded animate-pulse ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
-                      </div>
-                    </div>
-                  </motion.div>
-                )}
-
-              </AnimatePresence>
-            </div>
-
-            {/* Trust Footer */}
-            <div className={`h-9 border-t flex items-center justify-center gap-4 text-[10px] mt-auto select-none ${theme.footerBg} ${theme.footerBorder} ${theme.textSoft}`}>
-              <span className="flex items-center gap-1.5" title="Säkerhet">
-                <ShieldCheck size={10} className={isDarkMode ? "text-green-400" : "text-[#6B9080]"} />
-                Beslutsstöd (ej beslut)
-              </span>
-              <span className={`w-px h-3 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
-              <span className="flex items-center gap-1.5" title="Lagring">
-                <span className="text-xs">🇸🇪</span>
-                Svensk datalagring
-              </span>
-            </div>
-            
-            {/* Copy Toast */}
-            <AnimatePresence>
-              {copied && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, x: "-50%" }}
-                  animate={{ opacity: 1, y: 0, x: "-50%" }}
-                  exit={{ opacity: 0, y: -10, x: "-50%" }}
-                  className={`absolute bottom-16 left-1/2 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap z-50 text-xs ${isDarkMode ? 'bg-white text-gray-900' : 'bg-gray-900 text-white'}`}
-                >
-                  <Check size={10} /> Kopierat till urklipp
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
-
-// --- APP CONTAINER ---
-
-export default function App() {
-  const [isDosaOpen, setIsDosaOpen] = useState(true);
-  const [isDarkMode, setIsDarkMode] = useState(false); // Lifted state to control wallpaper
-
-  // Global Shortcut
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
-        setIsDosaOpen(prev => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
-
-  // Grid Pattern for Light Mode
-  const lightModeBackground = {
-    backgroundImage: `
-      radial-gradient(circle, #cbd5e1 1px, transparent 1px),
-      linear-gradient(to bottom right, #f3f4f6, #e5e7eb)
-    `,
-    backgroundSize: '24px 24px, 100% 100%',
-  };
-
-  return (
-    <div 
-      className={`h-screen w-screen overflow-hidden font-sans transition-colors duration-500 ${isDarkMode ? 'bg-gray-950 text-gray-100' : 'text-gray-900'}`}
-      style={!isDarkMode ? lightModeBackground : {}}
-    >
-      {/* Dark Mode Gradient Background */}
-      {isDarkMode && (
-        <div className="absolute inset-0 bg-gradient-to-br from-gray-950 via-gray-900 to-cyan-950/30 pointer-events-none" />
-      )}
-
-      {/* Particle Field */}
-      <ParticleField isDark={isDarkMode} />
-      
-      {/* Simulated Desktop Bar */}
-      <div className={`h-8 backdrop-blur-md border-b flex items-center justify-between px-4 fixed top-0 w-full z-30 shadow-sm select-none transition-colors ${isDarkMode ? 'bg-gray-900/80 border-gray-800 text-gray-300' : 'bg-white/80 border-gray-200/50 text-gray-600'}`}>
-        <div className="flex gap-4 text-xs font-medium">
-          <span className={`font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}></span>
-          <span className="cursor-default opacity-80 hover:opacity-100">Arkiv</span>
-          <span className="cursor-default opacity-80 hover:opacity-100">Redigera</span>
-          <span className="cursor-default opacity-80 hover:opacity-100">Visa</span>
-        </div>
+    </script>
+    <style>
+        /* --- CORE STYLES --- */
+        body {
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+        }
         
-        <div className="flex items-center gap-4">
-           {/* Dosa Trigger Icon */}
-           <button 
-            onClick={() => setIsDosaOpen(!isDosaOpen)}
-            className={`flex items-center gap-2 px-3 py-0.5 rounded transition-all duration-200 border border-transparent
-              ${isDosaOpen 
-                ? `shadow-inner border-cyan-900/30 ${isDarkMode ? 'bg-cyan-600 text-white' : 'bg-cyan-600 text-white'}` 
-                : `hover:bg-opacity-10 ${isDarkMode ? 'hover:bg-white' : 'hover:bg-black'}`}`}
-          >
-            <NordSymLogo className="w-3.5 h-3.5" />
-            <span className="text-xs font-semibold">NordSym</span>
-          </button>
+        /* Hide scrollbar */
+        .scrollbar-hide::-webkit-scrollbar {
+            display: none;
+        }
+        .scrollbar-hide {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
 
-          <span className="text-xs font-medium opacity-70 cursor-default w-16 text-right">
-            {new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}
-          </span>
+        /* --- ANIMATIONS --- */
+        @keyframes float {
+            0% { transform: translateY(0px) translateX(0px); opacity: 0; }
+            50% { opacity: var(--p-opacity); }
+            100% { transform: translateY(-120vh) translateX(var(--p-drift)); opacity: 0; }
+        }
+
+        @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        @keyframes spin-reverse {
+            from { transform: rotate(360deg); }
+            to { transform: rotate(0deg); }
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.3; }
+            50% { transform: scale(1.2); opacity: 0.6; }
+            100% { transform: scale(0.8); opacity: 0.3; }
+        }
+
+        @keyframes waveform {
+            0%, 100% { height: 4px; }
+            50% { height: var(--h-target); }
+        }
+
+        /* Transition Classes */
+        .fade-enter { opacity: 0; transform: translateX(20px); }
+        .fade-enter-active { opacity: 1; transform: translateX(0); transition: opacity 300ms ease-out, transform 300ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+        .fade-exit { opacity: 1; transform: translateX(0); }
+        .fade-exit-active { opacity: 0; transform: translateX(-20px); transition: opacity 200ms ease-in, transform 200ms ease-in; }
+
+        /* Particle Class */
+        .particle {
+            position: absolute;
+            border-radius: 50%;
+            pointer-events: none;
+            animation: float linear infinite;
+        }
+
+        /* Grid Background Pattern */
+        .bg-grid-pattern {
+            background-image: 
+                radial-gradient(circle, #cbd5e1 1px, transparent 1px),
+                linear-gradient(to bottom right, #f3f4f6, #e5e7eb);
+            background-size: 24px 24px, 100% 100%;
+        }
+        
+        .dark .bg-grid-pattern {
+            background-image: none;
+            background: linear-gradient(to bottom right, #030712, #111827, #083344);
+        }
+
+        /* Glassmorphism utilities */
+        .glass {
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        /* SVG Graph Animation */
+        .graph-line {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            transition: stroke-dashoffset 1.5s ease-out;
+        }
+        .graph-line.animate {
+            stroke-dashoffset: 0;
+        }
+
+        /* Logo helper to ensure sharp rendering */
+        .logo-img {
+            image-rendering: -webkit-optimize-contrast;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body class="h-screen w-screen transition-colors duration-500 bg-gray-50 text-gray-900 bg-grid-pattern">
+
+    <!-- BACKGROUND: PARTICLES -->
+    <div id="particle-container" class="absolute inset-0 overflow-hidden pointer-events-none z-0"></div>
+
+    <!-- OS BAR -->
+    <div id="os-bar" class="h-8 glass border-b flex items-center justify-between px-4 fixed top-0 w-full z-30 shadow-sm transition-colors duration-300 bg-white/80 border-gray-200/50 text-gray-600 dark:bg-gray-900/80 dark:border-gray-800 dark:text-gray-300">
+        <div class="flex gap-4 text-xs font-medium">
+            <span class="font-bold dark:text-white text-gray-900"></span>
+            <span class="cursor-default opacity-80 hover:opacity-100">Arkiv</span>
+            <span class="cursor-default opacity-80 hover:opacity-100">Redigera</span>
+            <span class="cursor-default opacity-80 hover:opacity-100">Visa</span>
         </div>
-      </div>
-
-      {/* Desktop Wallpaper Area */}
-      <div 
-        className="h-full w-full flex items-center justify-center p-20 relative z-10"
-        onClick={() => setIsDosaOpen(false)}
-      >
-        <div className="text-center space-y-6 opacity-20 select-none pointer-events-none transition-opacity duration-1000 flex flex-col items-center">
-          <NordSymLogo className="w-32 h-32 grayscale opacity-50" />
-          <div className={`text-8xl font-black tracking-tighter ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>NORDSYM</div>
-          <p className="text-2xl font-light tracking-widest uppercase">Operating System</p>
+        <div class="flex items-center gap-4">
+            <button id="dosa-toggle-btn" class="flex items-center gap-2 px-3 py-0.5 rounded transition-all duration-200 border border-transparent bg-cyan-600 text-white shadow-inner border-cyan-900/30">
+                <img src="https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg" class="w-3.5 h-3.5 logo-img" alt="NordSym" draggable="false">
+                <span class="text-xs font-semibold">NordSym</span>
+            </button>
+            <span id="clock" class="text-xs font-medium opacity-70 cursor-default w-16 text-right">12:00</span>
         </div>
-
-        {/* Hints */}
-        <div className={`absolute bottom-12 text-center text-xs space-y-2 opacity-60 ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-           <p>Tryck <kbd className={`px-1.5 py-0.5 rounded border shadow-sm mx-1 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-300'}`}>⌘ K</kbd> för att öppna Dosan</p>
-           <p>Klicka var som helst för att stänga</p>
-        </div>
-      </div>
-
-      {/* Pass isDarkMode state down to Dosa to sync the toggle button inside Dosa header */}
-      {/* Note: For this single-file demo, we are keeping state local to Dosa component for the toggle, 
-          but we need to sync it with App background. 
-          Ideally we lift state up completely, but to preserve exact structure requested:
-          I will make Dosa control the App state via a callback prop.
-      */}
-      <DosaWithStateControl 
-        isOpen={isDosaOpen} 
-        onClose={() => setIsDosaOpen(false)} 
-        isDarkMode={isDarkMode}
-        setIsDarkMode={setIsDarkMode}
-      />
-      
     </div>
-  );
-}
 
-// Wrapper to inject props into existing Dosa component structure
-// In a real app, we would just refactor Dosa to accept these props directly.
-// Since I need to keep the Dosa component code mostly intact as per instructions,
-// I will modify the Dosa component signature slightly above to accept these props if passed,
-// or fall back to local state (though for the full effect, props are better).
-
-// ACTUALLY: I will modify the Dosa component above to accept these props to ensure synchronization.
-// *Updating Dosa signature in place above* -> Done in Dosa definition.
-
-const DosaWithStateControl = ({ isOpen, onClose, isDarkMode, setIsDarkMode }: any) => {
-  const [view, setView] = useState<ViewState>('onboarding');
-  const [inputText, setInputText] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [transcriptIndex, setTranscriptIndex] = useState(0);
-  const [lawSearch, setLawSearch] = useState('');
-  
-  const dragControls = useDragControls();
-  
-  // Reset logic
-  useEffect(() => {
-    if (!isOpen) {
-      setTimeout(() => {
-        setView(v => v === 'onboarding' ? 'onboarding' : 'idle');
-        setInputText('');
-        setIsTranscribing(false);
-        setTranscriptIndex(0);
-        setLawSearch('');
-      }, 300);
-    }
-  }, [isOpen]);
-
-  // Keyboard Navigation
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isOpen) return;
-      if (e.key === 'Escape') {
-        if (view === 'idle') onClose();
-        else setView('idle');
-      }
-      if (e.metaKey || e.ctrlKey) {
-        if (e.key === '1') setView('input');
-        if (e.key === '2') setView('transcribe');
-        if (e.key === '3') setView('cases');
-        if (e.key === '4') setView('law');
-        if (e.key === '5') setView('freda');
-        if (e.key === '6') setView('journal');
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, view, onClose]);
-
-  // Transcribe simulation
-  useEffect(() => {
-    let interval: any;
-    if (isTranscribing && transcriptIndex < TRANSCRIPT_MOCK.length) {
-      interval = setTimeout(() => {
-        setTranscriptIndex(prev => prev + 1);
-      }, 2500); 
-    } else if (transcriptIndex >= TRANSCRIPT_MOCK.length) {
-      setIsTranscribing(false);
-    }
-    return () => clearTimeout(interval);
-  }, [isTranscribing, transcriptIndex]);
-
-  const handleCopy = (text: string) => {
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => fallbackCopy(text));
-    } else { fallbackCopy(text); }
-  };
-  const fallbackCopy = (text: string) => {
-    const t = document.createElement("textarea"); t.value = text; t.style.position="fixed"; t.style.opacity="0"; document.body.appendChild(t); t.focus(); t.select(); try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch(e){} document.body.removeChild(t);
-  };
-
-  const startAnalysis = () => { if (!inputText) return; setView('analyzing'); };
-
-  // --- THEME CLASSES ---
-  const theme = {
-    bg: isDarkMode ? 'bg-gray-900' : 'bg-white',
-    bgSoft: isDarkMode ? 'bg-gray-800' : 'bg-gray-50',
-    bgHover: isDarkMode ? 'hover:bg-gray-800' : 'hover:bg-gray-50',
-    text: isDarkMode ? 'text-gray-100' : 'text-gray-900',
-    textSoft: isDarkMode ? 'text-gray-400' : 'text-gray-500',
-    border: isDarkMode ? 'border-gray-800' : 'border-gray-200/60',
-    inputBg: isDarkMode ? 'bg-gray-800' : 'bg-gray-50',
-    inputBorder: isDarkMode ? 'border-gray-700' : 'border-gray-200',
-    headerBg: isDarkMode ? 'bg-gray-900/80' : 'bg-white/80',
-    headerBorder: isDarkMode ? 'border-gray-800' : 'border-gray-100',
-    footerBg: isDarkMode ? 'bg-gray-900' : 'bg-gray-50',
-    footerBorder: isDarkMode ? 'border-gray-800' : 'border-gray-100',
-    primaryText: isDarkMode ? 'text-cyan-400' : 'text-cyan-700',
-    primaryBg: isDarkMode ? 'bg-cyan-600' : 'bg-cyan-600',
-    cardBg: isDarkMode ? 'bg-gray-800' : 'bg-white',
-    cardBorder: isDarkMode ? 'border-gray-700' : 'border-gray-100',
-  };
-
-  const MenuButton = ({ icon: Icon, title, desc, shortcut, onClick, colorClass }: any) => (
-    <button onClick={onClick} className={`w-full flex flex-col items-start p-3 rounded-xl ${theme.bgHover} transition-all group active:scale-[0.98] border border-transparent ${isDarkMode ? 'hover:border-gray-700' : 'hover:border-gray-100'}`}>
-      <div className="flex justify-between w-full items-start mb-2">
-        <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${colorClass}`}>
-          <Icon size={16} />
+    <!-- DESKTOP WALLPAPER AREA -->
+    <div id="desktop-area" class="h-full w-full flex items-center justify-center p-20 relative z-10 cursor-default">
+        <div class="text-center space-y-6 opacity-20 transition-opacity duration-1000 flex flex-col items-center">
+             <img src="https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg" class="w-32 h-32 opacity-50 grayscale logo-img" alt="NordSym Large" draggable="false">
+            <div class="text-8xl font-black tracking-tighter dark:text-white text-gray-900">NORDSYM</div>
+            <p class="text-2xl font-light tracking-widest uppercase">Operating System</p>
         </div>
-        <span className={`text-[10px] font-mono mt-1 ${isDarkMode ? 'text-gray-500 group-hover:text-gray-300' : 'text-gray-300 group-hover:text-gray-400'}`}>{shortcut}</span>
-      </div>
-      <span className={`text-sm font-semibold leading-tight mb-1 ${isDarkMode ? 'text-gray-200 group-hover:text-white' : 'text-gray-700 group-hover:text-gray-900'}`}>{title}</span>
-      <p className={`text-[10px] leading-snug ${isDarkMode ? 'text-gray-500' : 'text-gray-400'}`}>{desc}</p>
-    </button>
-  );
+        <div class="absolute bottom-12 text-center text-xs space-y-2 opacity-60 dark:text-gray-400 text-gray-500">
+            <p>Tryck <kbd class="px-1.5 py-0.5 rounded border shadow-sm mx-1 bg-white border-gray-300 dark:bg-gray-800 dark:border-gray-700">⌘ P</kbd> för att öppna Dosan</p>
+            <p>Klicka var som helst för att stänga</p>
+        </div>
+    </div>
 
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className={`fixed inset-0 z-40 ${isDarkMode ? 'bg-black/20 backdrop-blur-sm' : 'bg-black/10 backdrop-blur-[1px]'}`} />
-          <motion.div
-            layout drag dragListener={false} dragControls={dragControls} dragMomentum={false} dragElastic={0.1}
-            initial={{ opacity: 0, scale: 0.95, y: -20, x: "-50%" }} animate={{ opacity: 1, scale: 1, y: 100, x: "-50%" }} exit={{ opacity: 0, scale: 0.95, y: -10, x: "-50%" }}
-            transition={{ type: "spring", stiffness: 350, damping: 30 }}
-            className={`fixed top-0 left-1/2 w-[520px] rounded-2xl shadow-2xl border z-50 overflow-hidden flex flex-col ${theme.bg} ${theme.border}`}
-            style={{ maxHeight: '85vh', position: 'fixed' }}
-          >
-            <div onPointerDown={(e) => dragControls.start(e)} className={`h-11 flex items-center justify-between px-4 border-b backdrop-blur-md select-none sticky top-0 z-10 cursor-grab active:cursor-grabbing ${theme.headerBg} ${theme.headerBorder}`}>
-              <div className="flex gap-1.5 group p-1" onPointerDown={(e) => e.stopPropagation()} onClick={onClose}>
-                <div className="w-2.5 h-2.5 rounded-full bg-red-400/20 group-hover:bg-red-500 transition-colors" />
-                <div className="w-2.5 h-2.5 rounded-full bg-yellow-400/20 group-hover:bg-yellow-500 transition-colors" />
-                <div className="w-2.5 h-2.5 rounded-full bg-green-400/20 group-hover:bg-green-500 transition-colors" />
-              </div>
-              <div className="flex items-center gap-1.5 opacity-80"><NordSymLogo className="w-3.5 h-3.5" /><span className={`text-[10px] font-semibold uppercase tracking-widest ${theme.textSoft}`}>NordSym AI</span></div>
-              <div className="flex items-center gap-3" onPointerDown={(e) => e.stopPropagation()}>
-                <button onClick={() => setIsDarkMode(!isDarkMode)} className={`p-1.5 rounded-md transition-colors ${theme.bgHover} ${theme.textSoft}`}>{isDarkMode ? <Sun size={12} /> : <Moon size={12} />}</button>
-                {view !== 'idle' && view !== 'onboarding' && <kbd className={`text-[9px] font-sans px-1.5 py-0.5 rounded border ${isDarkMode ? 'bg-gray-800 border-gray-700 text-gray-400' : 'bg-gray-100 border-gray-200 text-gray-400'}`}>ESC</kbd>}
-              </div>
-            </div>
+    <!-- DOSA BACKDROP -->
+    <div id="dosa-backdrop" class="fixed inset-0 z-40 bg-black/10 backdrop-blur-[1px] transition-opacity duration-300 dark:bg-black/20 dark:backdrop-blur-sm"></div>
 
-            <div className={`p-2 relative min-h-[400px] ${theme.bg}`}>
-              <AnimatePresence mode="wait">
-                {view === 'onboarding' && (
-                  <motion.div key="onboarding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, x: -20 }} className="flex flex-col items-center justify-center h-[380px] p-6 text-center relative overflow-hidden">
-                    <OrbitalRings isDark={isDarkMode} />
-                    <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.1 }} className="relative w-24 h-24 flex items-center justify-center mb-6 z-10">
-                      <motion.div className={`absolute inset-0 rounded-full blur-xl ${isDarkMode ? 'bg-cyan-500/20' : 'bg-cyan-600/10'}`} animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.3, 0.6, 0.3] }} transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }} />
-                      <NordSymLogo className="w-20 h-20 relative z-10 drop-shadow-sm" />
-                    </motion.div>
-                    <h2 className={`text-xl font-bold mb-2 relative z-10 ${theme.text}`}>Välkommen till NordSym</h2>
-                    <p className={`text-sm mb-8 max-w-[280px] leading-relaxed relative z-10 ${theme.textSoft}`}>Din intelligenta assistent för BBIC-utredningar. Jag hjälper dig analysera, dokumentera och minnas.</p>
-                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setView('idle')} className={`${theme.primaryBg} text-white px-8 py-3 rounded-xl font-medium text-sm shadow-lg shadow-cyan-900/10 hover:shadow-cyan-900/20 transition-all flex items-center gap-2 relative z-10`}>Kom igång <ChevronRight size={16} /></motion.button>
-                    <button onClick={() => setView('idle')} className={`mt-4 text-[10px] hover:text-gray-600 transition-colors relative z-10 ${theme.textSoft}`}>Hoppa över introduktion</button>
-                  </motion.div>
-                )}
-
-                {view === 'idle' && (
-                  <motion.div key="idle" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-2">
-                    <div className="relative mb-4 group">
-                      <input type="text" placeholder="Hur kan jag hjälpa dig idag?" className={`w-full text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 transition-all shadow-sm ${theme.inputBg} ${theme.inputBorder} ${theme.text} placeholder-gray-400 focus:ring-cyan-500/20`} autoFocus />
-                      <div className={`absolute right-3 top-3.5 text-[10px] border rounded px-1.5 py-0.5 ${theme.inputBorder} ${theme.textSoft}`}>⌘K</div>
-                    </div>
-                    <p className={`px-3 text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textSoft}`}>Verktyg</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <MenuButton icon={FileText} title="Analysera anmälan" desc="BBIC-mappning & risk" shortcut="⌘1" colorClass={isDarkMode ? "bg-cyan-900/30 text-cyan-400 group-hover:bg-cyan-600 group-hover:text-white" : "bg-cyan-50 text-cyan-700 group-hover:bg-cyan-600 group-hover:text-white"} onClick={() => setView('input')} />
-                      <MenuButton icon={Mic} title="Transkribera möte" desc="Spela in & sammanfatta" shortcut="⌘2" colorClass={isDarkMode ? "bg-purple-900/30 text-purple-400 group-hover:bg-purple-600 group-hover:text-white" : "bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white"} onClick={() => setView('transcribe')} />
-                      <MenuButton icon={LayoutTemplate} title="Aktiva ärenden" desc="Status & deadlines" shortcut="⌘3" colorClass={isDarkMode ? "bg-green-900/30 text-green-400 group-hover:bg-green-600 group-hover:text-white" : "bg-green-50 text-[#6B9080] group-hover:bg-[#6B9080] group-hover:text-white"} onClick={() => setView('cases')} />
-                      <MenuButton icon={Scale} title="Lagstöd (SoL/LVU)" desc="Sök paragrafer & praxis" shortcut="⌘4" colorClass={isDarkMode ? "bg-gray-700 text-gray-300 group-hover:bg-gray-600 group-hover:text-white" : "bg-gray-100 text-gray-600 group-hover:bg-gray-700 group-hover:text-white"} onClick={() => setView('law')} />
-                      <MenuButton icon={ShieldAlert} title="FREDA-Screening" desc="Snabbkoll våldsutsatthet" shortcut="⌘5" colorClass={isDarkMode ? "bg-red-900/30 text-red-400 group-hover:bg-red-600 group-hover:text-white" : "bg-red-50 text-red-500 group-hover:bg-red-500 group-hover:text-white"} onClick={() => setView('freda')} />
-                      <MenuButton icon={ScrollText} title="Generera Journal" desc="Sammanfatta anteckningar" shortcut="⌘6" colorClass={isDarkMode ? "bg-orange-900/30 text-orange-400 group-hover:bg-orange-600 group-hover:text-white" : "bg-orange-50 text-orange-500 group-hover:bg-orange-500 group-hover:text-white"} onClick={() => setView('journal')} />
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Input, Analyzing, Result, Transcribe, Cases, Law, Freda, Journal Views - Consistently updated with theme */}
-                {view === 'input' && (
-                  <motion.div key="input" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-2 h-full flex flex-col">
-                    <div className={`flex items-center gap-2 mb-3 px-1 ${theme.textSoft}`}><button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button><span className={`text-sm font-semibold ${theme.text}`}>Ny anmälningsanalys</span></div>
-                    <div className="relative flex-1">
-                      <textarea value={inputText} onChange={(e) => setInputText(e.target.value)} placeholder="Klistra in text från orosanmälan..." className={`w-full h-48 rounded-xl p-4 text-sm focus:outline-none focus:ring-2 resize-none transition-shadow ${theme.inputBg} ${theme.inputBorder} ${theme.text} focus:ring-cyan-500/20`} autoFocus />
-                      {inputText.length === 0 && <motion.button initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} onClick={() => setInputText(EXAMPLE_CASE_TEXT)} className={`absolute bottom-4 right-4 text-xs px-3 py-1.5 rounded-lg border shadow-sm font-medium transition-all ${isDarkMode ? 'bg-gray-800 border-gray-700 text-cyan-400 hover:bg-gray-700' : 'bg-white border-gray-200 text-cyan-700 hover:bg-cyan-50'}`}>Klistra in exempel</motion.button>}
-                    </div>
-                    <motion.button whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} onClick={startAnalysis} disabled={!inputText} className={`w-full mt-3 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-sm ${inputText ? `${theme.primaryBg} text-white hover:opacity-90 shadow-cyan-900/10` : `${isDarkMode ? 'bg-gray-800 text-gray-600' : 'bg-gray-100 text-gray-400'} cursor-not-allowed`}`}>{inputText ? <NordSymLogo className="w-4 h-4" /> : <Sparkles size={16} />} Analysera med BBIC-AI</motion.button>
-                  </motion.div>
-                )}
-
-                {view === 'analyzing' && (<motion.div key="analyzing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><AnalysisProcess onComplete={() => setView('result')} isDark={isDarkMode} /></motion.div>)}
-
-                {view === 'result' && (
-                  <motion.div key="result" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="p-1 max-h-[550px] overflow-y-auto scrollbar-hide">
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}><button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button><span className={`text-sm font-semibold ${theme.text}`}>Analysresultat</span><span className={`ml-auto text-[10px] px-2 py-0.5 rounded border ${isDarkMode ? 'bg-green-900/30 text-green-400 border-green-900' : 'bg-green-50 text-[#6B9080] border-green-100'}`}>AI-Förslag</span></div>
-                    <div className={`rounded-xl border shadow-sm mb-4 relative overflow-hidden ${theme.cardBg} ${theme.cardBorder}`}><BBICTriangle scores={ANALYSIS_RESULT.scores} isDark={isDarkMode} /></div>
-                    <div className={`rounded-xl p-4 border mb-4 ${isDarkMode ? 'bg-cyan-900/20 border-cyan-900/50' : 'bg-cyan-50/50 border-cyan-100'}`}><div className={`flex items-center gap-2 mb-2 text-xs font-bold uppercase tracking-wide ${theme.primaryText}`}><NordSymLogo className="w-3.5 h-3.5" /> Rekommendation</div><p className={`text-sm leading-relaxed ${isDarkMode ? 'text-gray-300' : 'text-gray-700'}`}><StreamingText text={ANALYSIS_RESULT.recommendation} speed={15} isDark={isDarkMode} /></p></div>
-                    <div className="mb-4 space-y-2"><p className={`text-[10px] font-bold uppercase tracking-wide px-1 ${theme.textSoft}`}>Riskindikatorer</p>{ANALYSIS_RESULT.flags.map((flag, i) => (<motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 1.5 + (i * 0.2) }} className={`flex items-start gap-3 p-3 rounded-lg border shadow-sm ${theme.cardBg} ${theme.cardBorder}`}><AlertTriangle size={14} className="text-[#F4A261] mt-0.5 shrink-0" /><div className="text-xs"><span className={`font-semibold ${theme.text}`}>"{flag.text}"</span><span className={`block mt-0.5 ${theme.textSoft}`}>{flag.category}</span></div></motion.div>))}</div>
-                    <div className={`flex gap-2 sticky bottom-0 backdrop-blur pt-2 pb-1 border-t ${theme.footerBg}/90 ${theme.footerBorder}`}><button onClick={() => { setView('idle'); setInputText(''); }} className={`flex-1 py-2.5 text-xs font-medium rounded-lg transition-colors ${theme.textSoft} ${theme.bgHover}`}>Ny analys</button><motion.button whileTap={{ scale: 0.97 }} onClick={() => handleCopy(JSON.stringify(ANALYSIS_RESULT, null, 2))} className={`flex-1 py-2.5 text-white text-xs font-medium rounded-lg hover:opacity-90 transition-colors flex items-center justify-center gap-2 relative overflow-hidden ${theme.primaryBg}`}>{copied ? <Check size={14} /> : <Copy size={14} />}{copied ? 'Kopierad' : 'Kopiera till journal'}</motion.button></div>
-                  </motion.div>
-                )}
-
-                {view === 'transcribe' && (
-                  <motion.div key="transcribe" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-2 h-full flex flex-col">
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}><button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button><span className={`text-sm font-semibold ${theme.text}`}>Mötesassistent</span></div>
-                    <div className={`rounded-xl p-6 text-center mb-4 relative overflow-hidden ${isDarkMode ? 'bg-gray-800' : 'bg-gray-900'}`}><div className="absolute top-2 right-3 flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${isTranscribing ? 'bg-red-500 animate-pulse' : 'bg-gray-600'}`} /><span className="text-[10px] text-gray-400 font-mono">REC</span></div><div className="h-12 flex items-center justify-center mb-2">{isTranscribing ? <Waveform isPlaying={true} isDark={isDarkMode} /> : <span className="text-gray-500 text-xs">Redo att spela in</span>}</div><div className="text-2xl font-mono text-white mb-4">{isTranscribing ? '00:04:12' : '00:00:00'}</div><motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { setIsTranscribing(!isTranscribing); if (!isTranscribing) setTranscriptIndex(0); }} className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto transition-colors ${isTranscribing ? 'bg-white text-gray-900' : `${theme.primaryBg} text-white`}`}>{isTranscribing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" className="ml-1" />}</motion.button></div>
-                    <div className={`flex-1 rounded-xl p-4 overflow-y-auto space-y-3 border ${theme.bgSoft} ${theme.border}`}><p className={`text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textSoft}`}>Live Transkription</p>{TRANSCRIPT_MOCK.slice(0, transcriptIndex).map((msg, i) => (<motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex gap-3"><div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${msg.speaker === 'SS' ? `${theme.primaryBg} text-white` : 'bg-gray-200 text-gray-600'}`}>{msg.speaker}</div><div className="flex-1"><p className={`text-xs leading-relaxed p-2 rounded-lg rounded-tl-none border shadow-sm ${theme.cardBg} ${theme.cardBorder} ${theme.text}`}>{msg.text}</p></div></motion.div>))}</div>
-                  </motion.div>
-                )}
-
-                {view === 'cases' && (
-                  <motion.div key="cases" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-2 h-full flex flex-col">
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}><button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button><span className={`text-sm font-semibold ${theme.text}`}>Mina aktiva ärenden</span></div>
-                    <div className="space-y-3">{CASES_MOCK.map((c) => (<motion.div key={c.id} whileHover={{ scale: 1.01 }} className={`p-4 rounded-xl border shadow-sm relative overflow-hidden group cursor-pointer ${theme.cardBg} ${theme.cardBorder}`}><div className={`absolute left-0 top-0 bottom-0 w-1 ${c.status === 'critical' ? 'bg-red-500' : c.status === 'attention' ? 'bg-[#F4A261]' : 'bg-[#6B9080]'}`} /><div className="flex justify-between items-start mb-2 pl-2"><div><h3 className={`text-sm font-bold ${theme.text}`}>{c.name}, {c.age} år</h3><p className={`text-[11px] flex items-center gap-1 mt-0.5 ${theme.textSoft}`}><Clock size={10} /> Dag {c.daysActive}/120 i utredning</p></div><div className={`px-2 py-0.5 rounded text-[10px] font-medium border ${c.status === 'critical' ? 'bg-red-500/10 text-red-500 border-red-500/20' : c.status === 'attention' ? 'bg-orange-500/10 text-orange-500 border-orange-500/20' : 'bg-green-500/10 text-green-500 border-green-500/20'}`}>{c.deadlineDays < 0 ? 'Försenad' : `${c.deadlineDays} dgr kvar`}</div></div><div className="pl-2"><div className={`flex justify-between text-[10px] mb-1 ${theme.textSoft}`}><span>Utredningsprogress</span><span>{c.progress}%</span></div><div className={`h-1.5 w-full rounded-full overflow-hidden ${isDarkMode ? 'bg-gray-700' : 'bg-gray-100'}`}><div className={`h-full rounded-full ${c.status === 'critical' ? 'bg-red-500' : c.status === 'attention' ? 'bg-[#F4A261]' : 'bg-[#6B9080]'}`} style={{ width: `${c.progress}%` }} /></div></div><ChevronRight className={`absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity ${theme.textSoft}`} size={16} /></motion.div>))}</div>
-                  </motion.div>
-                )}
-
-                {view === 'law' && (
-                  <motion.div key="law" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-2 h-full flex flex-col">
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}><button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button><span className={`text-sm font-semibold ${theme.text}`}>Lagstöd & Paragrafer</span></div>
-                    <div className="relative mb-4"><input type="text" value={lawSearch} onChange={(e) => setLawSearch(e.target.value)} placeholder="Sök i SoL och LVU..." className={`w-full border text-sm rounded-xl px-10 py-3 focus:outline-none focus:ring-2 transition-all ${theme.inputBg} ${theme.inputBorder} ${theme.text} focus:ring-cyan-500/20`} autoFocus /><Search className={`absolute left-3.5 top-3.5 ${theme.textSoft}`} size={16} /></div>
-                    <div className="space-y-3 overflow-y-auto max-h-[300px] p-1">{LAW_RESULTS.map((law, i) => (<div key={i} className={`p-4 rounded-xl border transition-colors cursor-pointer group ${theme.cardBg} ${theme.cardBorder} ${isDarkMode ? 'hover:border-gray-600' : 'hover:border-gray-300'}`}><div className="flex justify-between items-start mb-1"><span className={`text-xs font-bold px-2 py-0.5 rounded ${isDarkMode ? 'bg-cyan-900/30 text-cyan-400' : 'bg-cyan-50 text-cyan-700'}`}>{law.code}</span><ChevronRight size={14} className={`group-hover:${theme.text} ${theme.textSoft}`} /></div><h4 className={`text-sm font-semibold mb-1 ${theme.text}`}>{law.title}</h4><p className={`text-xs leading-relaxed ${theme.textSoft}`}>{law.desc}</p></div>))}</div>
-                  </motion.div>
-                )}
-
-                {view === 'freda' && (
-                  <motion.div key="freda" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-2 h-full flex flex-col">
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}><button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button><span className={`text-sm font-semibold ${theme.text}`}>FREDA-Screening</span></div>
-                    <div className={`border rounded-xl p-4 mb-4 flex items-start gap-3 ${isDarkMode ? 'bg-red-900/20 border-red-900/40' : 'bg-red-50 border-red-100'}`}><ShieldAlert className="text-red-500 shrink-0" size={20} /><div><h4 className="text-sm font-bold text-red-500">Standardiserad riskbedömning</h4><p className="text-xs text-red-400 mt-1">Används för att identifiera våldsutsatthet i nära relationer.</p></div></div>
-                    <div className="space-y-2">{['Har din partner förbjudit dig att träffa vänner?', 'Har din partner hotat dig?', 'Känner du dig rädd för din partner?'].map((q, i) => (<div key={i} className={`flex items-center justify-between p-3 border rounded-lg ${theme.cardBg} ${theme.cardBorder}`}><span className={`text-sm ${theme.text}`}>{q}</span><div className="flex gap-2"><button className={`px-3 py-1 text-xs font-medium rounded ${isDarkMode ? 'bg-gray-700 text-gray-300' : 'bg-gray-100 text-gray-600'}`}>Nej</button><button className={`px-3 py-1 text-xs font-medium rounded ${isDarkMode ? 'bg-red-900/30 text-red-400' : 'bg-red-50 text-red-600'}`}>Ja</button></div></div>))}</div>
-                  </motion.div>
-                )}
-
-                {view === 'journal' && (
-                  <motion.div key="journal" initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="p-2 h-full flex flex-col">
-                    <div className={`flex items-center gap-2 mb-4 px-1 ${theme.textSoft}`}><button onClick={() => setView('idle')} className={`hover:${theme.text} transition-colors`}><ChevronLeft size={18} /></button><span className={`text-sm font-semibold ${theme.text}`}>Journal-sammanfattning</span></div>
-                    <div className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer group ${theme.border} ${isDarkMode ? 'hover:border-cyan-400 hover:bg-cyan-900/10' : 'hover:border-cyan-600 hover:bg-cyan-50/30'}`}><ScrollText className={`mb-2 ${isDarkMode ? 'text-gray-600 group-hover:text-cyan-400' : 'text-gray-300 group-hover:text-cyan-600'}`} size={32} /><p className={`text-sm font-medium ${isDarkMode ? 'text-gray-400 group-hover:text-white' : 'text-gray-600 group-hover:text-gray-800'}`}>Klistra in anteckningar</p><p className={`text-xs ${theme.textSoft}`}>eller dra och släpp textfil här</p></div>
-                    <div className={`mt-4 p-4 rounded-xl ${theme.bgSoft}`}><p className={`text-[10px] font-bold uppercase tracking-wide mb-2 ${theme.textSoft}`}>Exempel på output</p><div className="space-y-2"><div className={`h-2 w-3/4 rounded animate-pulse ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} /><div className={`h-2 w-full rounded animate-pulse ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} /><div className={`h-2 w-5/6 rounded animate-pulse ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} /></div></div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div className={`h-9 border-t flex items-center justify-center gap-4 text-[10px] mt-auto select-none ${theme.footerBg} ${theme.footerBorder} ${theme.textSoft}`}>
-              <span className="flex items-center gap-1.5" title="Säkerhet"><ShieldCheck size={10} className={isDarkMode ? "text-green-400" : "text-[#6B9080]"} />Beslutsstöd (ej beslut)</span>
-              <span className={`w-px h-3 ${isDarkMode ? 'bg-gray-700' : 'bg-gray-200'}`} />
-              <span className="flex items-center gap-1.5" title="Lagring"><span className="text-xs">🇸🇪</span>Svensk datalagring</span>
+    <!-- DOSA WINDOW -->
+    <div id="dosa-window" class="fixed top-24 left-1/2 w-[520px] rounded-2xl shadow-2xl border z-50 overflow-hidden flex flex-col bg-white border-gray-200/60 dark:bg-gray-900 dark:border-gray-800 transition-colors duration-300" style="max-height: 85vh; transform: translate3d(-50%, 0, 0);">
+        
+        <!-- HEADER (DRAG HANDLE) -->
+        <div id="dosa-header" class="h-11 flex items-center justify-between px-4 border-b backdrop-blur-md select-none sticky top-0 z-10 cursor-grab active:cursor-grabbing bg-white/80 border-gray-100 dark:bg-gray-900/80 dark:border-gray-800 transition-colors">
+            <div class="flex gap-1.5 group p-1" id="close-btn-group">
+                <div class="w-2.5 h-2.5 rounded-full bg-red-400/20 group-hover:bg-red-500 transition-colors"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-yellow-400/20 group-hover:bg-yellow-500 transition-colors"></div>
+                <div class="w-2.5 h-2.5 rounded-full bg-green-400/20 group-hover:bg-green-500 transition-colors"></div>
             </div>
             
-            <AnimatePresence>
-              {copied && (
-                <motion.div initial={{ opacity: 0, y: 10, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: -10, x: "-50%" }} className={`absolute bottom-16 left-1/2 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap z-50 text-xs ${isDarkMode ? 'bg-white text-gray-900' : 'bg-gray-900 text-white'}`}>
-                  <Check size={10} /> Kopierat till urklipp
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-};
+            <div class="flex items-center gap-1.5 opacity-80">
+                <img src="https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg" class="w-3.5 h-3.5 logo-img" alt="NordSym" draggable="false">
+                <span class="text-[10px] font-semibold uppercase tracking-widest text-gray-500 dark:text-gray-400">NordSym AI</span>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <button id="theme-toggle" class="p-1.5 rounded-md transition-colors hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400">
+                    <!-- Moon Icon -->
+                    <svg id="icon-moon" class="w-3 h-3 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                    <!-- Sun Icon -->
+                    <svg id="icon-sun" class="w-3 h-3 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                </button>
+                <kbd id="esc-hint" class="text-[9px] font-sans px-1.5 py-0.5 rounded border bg-gray-100 border-gray-200 text-gray-400 dark:bg-gray-800 dark:border-gray-700 hidden">ESC</kbd>
+            </div>
+        </div>
+
+        <!-- MAIN CONTENT AREA -->
+        <div id="content-area" class="p-2 relative min-h-[400px] bg-white dark:bg-gray-900 transition-colors">
+            
+            <!-- VIEW: ONBOARDING -->
+            <div id="view-onboarding" class="view-section hidden absolute inset-0 flex flex-col items-center justify-center p-6 text-center overflow-hidden">
+                <!-- Orbital Rings -->
+                <div class="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    <div class="absolute w-32 h-32 rounded-full border border-dashed border-cyan-600/10 dark:border-cyan-500/20" style="animation: spin-slow 20s linear infinite;"></div>
+                    <div class="absolute w-40 h-40 rounded-full border border-dotted border-cyan-600/5 dark:border-cyan-400/10" style="animation: spin-reverse 35s linear infinite;"></div>
+                </div>
+                
+                <div class="relative w-24 h-24 flex items-center justify-center mb-6 z-10 transition-all duration-700 transform scale-100 opacity-100">
+                    <div class="absolute inset-0 rounded-full blur-xl bg-cyan-600/10 dark:bg-cyan-500/20" style="animation: pulse-ring 4s ease-in-out infinite;"></div>
+                    <img src="https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg" class="w-20 h-20 relative z-10 drop-shadow-sm logo-img" alt="NordSym Logo" draggable="false">
+                </div>
+
+                <h2 class="text-xl font-bold mb-2 relative z-10 text-gray-900 dark:text-gray-100">Välkommen till NordSym</h2>
+                <p class="text-sm mb-8 max-w-[280px] leading-relaxed relative z-10 text-gray-500 dark:text-gray-400">
+                    Din intelligenta assistent för BBIC-utredningar. Jag hjälper dig analysera, dokumentera och minnas.
+                </p>
+                <button onclick="window.app.switchView('idle')" class="bg-cyan-600 text-white px-8 py-3 rounded-xl font-medium text-sm shadow-lg shadow-cyan-900/10 hover:shadow-cyan-900/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2 relative z-10">
+                    Kom igång 
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+                <button onclick="window.app.switchView('idle')" class="mt-4 text-[10px] hover:text-gray-600 transition-colors relative z-10 text-gray-500 dark:text-gray-400">
+                    Hoppa över introduktion
+                </button>
+            </div>
+
+            <!-- VIEW: IDLE (MENU) -->
+            <div id="view-idle" class="view-section hidden p-2">
+                <div class="relative mb-4 group">
+                    <input type="text" placeholder="Hur kan jag hjälpa dig idag?" class="w-full text-sm rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 transition-all shadow-sm bg-gray-50 border-gray-200 text-gray-900 placeholder-gray-400 focus:ring-cyan-500/20 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100" autofocus>
+                    <div class="absolute right-3 top-3.5 text-[10px] border rounded px-1.5 py-0.5 border-gray-200 text-gray-500 dark:border-gray-700 dark:text-gray-400">⌘K</div>
+                </div>
+                
+                <p class="px-3 text-[10px] font-bold uppercase tracking-wide mb-2 text-gray-500 dark:text-gray-400">Verktyg</p>
+                
+                <div class="grid grid-cols-2 gap-2" id="menu-grid">
+                    <!-- Buttons generated via JS to keep HTML clean -->
+                </div>
+            </div>
+
+            <!-- VIEW: INPUT (ANALYZE) -->
+            <div id="view-input" class="view-section hidden p-2 h-full flex flex-col">
+                <div class="flex items-center gap-2 mb-3 px-1 text-gray-500 dark:text-gray-400">
+                    <button onclick="window.app.switchView('idle')" class="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"><svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">Ny anmälningsanalys</span>
+                </div>
+                <div class="relative flex-1">
+                    <textarea id="analysis-input" placeholder="Klistra in text från orosanmälan..." class="w-full h-48 rounded-xl p-4 text-sm focus:outline-none focus:ring-2 resize-none transition-shadow bg-gray-50 border-gray-200 text-gray-900 focus:ring-cyan-500/20 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100"></textarea>
+                    <button id="paste-btn" class="absolute bottom-4 right-4 text-xs px-3 py-1.5 rounded-lg border shadow-sm font-medium transition-all bg-white border-gray-200 text-cyan-700 hover:bg-cyan-50 dark:bg-gray-800 dark:border-gray-700 dark:text-cyan-400 dark:hover:bg-gray-700">Klistra in exempel</button>
+                </div>
+                <button id="analyze-btn" class="w-full mt-3 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-sm bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600" disabled>
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg>
+                    Analysera med BBIC-AI
+                </button>
+            </div>
+
+            <!-- VIEW: ANALYZING (LOADING) -->
+            <div id="view-analyzing" class="view-section hidden flex flex-col items-start justify-center py-8 px-6 w-full">
+                <div class="mb-6 flex items-center gap-3">
+                    <div class="relative w-8 h-8 flex items-center justify-center">
+                        <div class="absolute w-full h-full rounded-full bg-cyan-600/20 dark:bg-cyan-400/20" style="animation: pulse-ring 2s infinite;"></div>
+                        <img src="https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg" class="w-6 h-6 relative z-10 logo-img" alt="NordSym" draggable="false">
+                    </div>
+                    <span class="font-semibold text-lg text-cyan-700 dark:text-cyan-400">Analyserar ärende...</span>
+                </div>
+                <div id="analysis-steps" class="space-y-4 w-full text-sm"></div>
+                <div class="w-full h-1 mt-8 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
+                    <div id="analysis-bar" class="h-full bg-cyan-600 dark:bg-cyan-400 transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <!-- VIEW: RESULT -->
+            <div id="view-result" class="view-section hidden p-1 max-h-[550px] overflow-y-auto scrollbar-hide">
+                 <div class="flex items-center gap-2 mb-4 px-1 text-gray-500 dark:text-gray-400">
+                    <button onclick="window.app.switchView('idle')" class="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"><svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">Analysresultat</span>
+                    <span class="ml-auto text-[10px] px-2 py-0.5 rounded border bg-green-50 text-[#6B9080] border-green-100 dark:bg-green-900/30 dark:text-green-400 dark:border-green-900">AI-Förslag</span>
+                </div>
+
+                <!-- TRIANGLE SVG CONTAINER -->
+                <div class="rounded-xl border shadow-sm mb-4 relative overflow-hidden bg-white border-gray-100 dark:bg-gray-800 dark:border-gray-700 p-2">
+                    <svg viewBox="0 0 200 180" class="w-48 h-40 mx-auto drop-shadow-lg">
+                        <polygon points="100,10 190,170 10,170" class="fill-[#F8F9FA] stroke-[#E5E7EB] dark:fill-[#111827] dark:stroke-[#374151]" stroke-width="2" />
+                        <line id="t-line-1" x1="100" y1="10" x2="10" y2="170" stroke="#F4A261" stroke-width="6" stroke-linecap="round" class="graph-line" />
+                        <line id="t-line-2" x1="100" y1="10" x2="190" y2="170" stroke="#0891b2" stroke-width="6" stroke-linecap="round" class="graph-line" />
+                        <line id="t-line-3" x1="10" y1="170" x2="190" y2="170" stroke="#6B9080" stroke-width="6" stroke-linecap="round" class="graph-line" />
+                        <circle cx="100" cy="115" r="8" fill="#F4A261" style="animation: pulse-ring 2s infinite" />
+                    </svg>
+                </div>
+
+                <!-- STREAMING TEXT AREA -->
+                <div class="rounded-xl p-4 border mb-4 bg-cyan-50/50 border-cyan-100 dark:bg-cyan-900/20 dark:border-cyan-900/50">
+                    <div class="flex items-center gap-2 mb-2 text-xs font-bold uppercase tracking-wide text-cyan-700 dark:text-cyan-400">
+                         <img src="https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg" class="w-3.5 h-3.5 logo-img" alt="NordSym" draggable="false">
+                        Rekommendation
+                    </div>
+                    <p id="recommendation-text" class="text-sm leading-relaxed text-gray-700 dark:text-gray-300 min-h-[60px]"></p>
+                </div>
+
+                <div id="flags-container" class="mb-4 space-y-2"></div>
+
+                <div class="flex gap-2 sticky bottom-0 backdrop-blur pt-2 pb-1 border-t bg-gray-50/90 border-gray-100 dark:bg-gray-900/90 dark:border-gray-800">
+                     <button onclick="window.app.resetAnalysis()" class="flex-1 py-2.5 text-xs font-medium rounded-lg transition-colors text-gray-500 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800">Ny analys</button>
+                     <button onclick="window.app.copyResult()" class="flex-1 py-2.5 text-white text-xs font-medium rounded-lg hover:opacity-90 transition-colors flex items-center justify-center gap-2 bg-cyan-600">
+                        <svg id="copy-icon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        <span id="copy-text">Kopiera till journal</span>
+                     </button>
+                </div>
+            </div>
+
+            <!-- VIEW: TRANSCRIBE -->
+            <div id="view-transcribe" class="view-section hidden p-2 h-full flex flex-col">
+                 <div class="flex items-center gap-2 mb-4 px-1 text-gray-500 dark:text-gray-400">
+                    <button onclick="window.app.switchView('idle')" class="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"><svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">Mötesassistent</span>
+                </div>
+                
+                <div class="rounded-xl p-6 text-center mb-4 relative overflow-hidden bg-gray-900 dark:bg-gray-800">
+                     <div class="absolute top-2 right-3 flex items-center gap-1.5">
+                        <div id="rec-dot" class="w-2 h-2 rounded-full bg-gray-600"></div>
+                        <span class="text-[10px] text-gray-400 font-mono">REC</span>
+                     </div>
+                     <div class="h-12 flex items-center justify-center mb-2" id="waveform-container">
+                        <span class="text-gray-500 text-xs">Redo att spela in</span>
+                     </div>
+                     <div id="timer" class="text-2xl font-mono text-white mb-4">00:00:00</div>
+                     <button id="record-btn" onclick="window.app.toggleRecording()" class="w-12 h-12 rounded-full flex items-center justify-center mx-auto transition-colors bg-cyan-600 text-white hover:scale-105 active:scale-95">
+                        <svg class="w-5 h-5 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                     </button>
+                </div>
+                
+                <div id="transcript-log" class="flex-1 rounded-xl p-4 overflow-y-auto space-y-3 border bg-gray-50 border-gray-200 dark:bg-gray-800 dark:border-gray-800">
+                    <p class="text-[10px] font-bold uppercase tracking-wide mb-2 text-gray-500 dark:text-gray-400">Live Transkription</p>
+                    <!-- Chat items here -->
+                </div>
+            </div>
+
+             <!-- VIEW: CASES -->
+             <div id="view-cases" class="view-section hidden p-2 h-full flex flex-col">
+                <div class="flex items-center gap-2 mb-4 px-1 text-gray-500 dark:text-gray-400">
+                   <button onclick="window.app.switchView('idle')" class="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"><svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                   <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">Mina aktiva ärenden</span>
+               </div>
+               <div id="cases-list" class="space-y-3"></div>
+            </div>
+
+            <!-- VIEW: LAW -->
+            <div id="view-law" class="view-section hidden p-2 h-full flex flex-col">
+                <div class="flex items-center gap-2 mb-4 px-1 text-gray-500 dark:text-gray-400">
+                   <button onclick="window.app.switchView('idle')" class="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"><svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                   <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">Lagstöd & Paragrafer</span>
+               </div>
+               <div class="relative mb-4">
+                   <input type="text" placeholder="Sök i SoL och LVU..." class="w-full border text-sm rounded-xl px-10 py-3 focus:outline-none focus:ring-2 transition-all bg-gray-50 border-gray-200 text-gray-900 focus:ring-cyan-500/20 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100">
+                   <svg class="absolute left-3.5 top-3.5 w-4 h-4 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+               </div>
+               <div id="law-list" class="space-y-3 overflow-y-auto max-h-[300px] p-1"></div>
+            </div>
+
+            <!-- VIEW: FREDA -->
+            <div id="view-freda" class="view-section hidden p-2 h-full flex flex-col">
+                <div class="flex items-center gap-2 mb-4 px-1 text-gray-500 dark:text-gray-400">
+                   <button onclick="window.app.switchView('idle')" class="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"><svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                   <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">FREDA-Screening</span>
+               </div>
+               <div class="border rounded-xl p-4 mb-4 flex items-start gap-3 bg-red-50 border-red-100 dark:bg-red-900/20 dark:border-red-900/40">
+                    <svg class="w-5 h-5 text-red-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                    <div>
+                        <h4 class="text-sm font-bold text-red-500">Standardiserad riskbedömning</h4>
+                        <p class="text-xs text-red-400 mt-1">Används för att identifiera våldsutsatthet i nära relationer.</p>
+                    </div>
+               </div>
+               <div id="freda-questions" class="space-y-2"></div>
+            </div>
+
+            <!-- VIEW: JOURNAL -->
+            <div id="view-journal" class="view-section hidden p-2 h-full flex flex-col">
+                <div class="flex items-center gap-2 mb-4 px-1 text-gray-500 dark:text-gray-400">
+                   <button onclick="window.app.switchView('idle')" class="hover:text-gray-900 dark:hover:text-gray-100 transition-colors"><svg class="w-4.5 h-4.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                   <span class="text-sm font-semibold text-gray-900 dark:text-gray-100">Journal-sammanfattning</span>
+               </div>
+               <div class="border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center transition-all cursor-pointer group border-gray-200/60 hover:border-cyan-600 hover:bg-cyan-50/30 dark:border-gray-800 dark:hover:border-cyan-400 dark:hover:bg-cyan-900/10">
+                    <svg class="w-8 h-8 mb-2 text-gray-300 group-hover:text-cyan-600 dark:text-gray-600 dark:group-hover:text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    <p class="text-sm font-medium text-gray-600 group-hover:text-gray-800 dark:text-gray-400 dark:group-hover:text-white">Klistra in anteckningar</p>
+                    <p class="text-xs text-gray-400 dark:text-gray-500">eller dra och släpp textfil här</p>
+               </div>
+               <div class="mt-4 p-4 rounded-xl bg-gray-50 dark:bg-gray-800">
+                   <p class="text-[10px] font-bold uppercase tracking-wide mb-2 text-gray-500 dark:text-gray-400">Exempel på output</p>
+                   <!-- Journal Content Container -->
+                   <div id="journal-preview" class="space-y-2">
+                       <!-- Default Skeletons (Will be replaced by renderJournal) -->
+                       <div class="h-2 w-3/4 rounded animate-pulse bg-gray-200 dark:bg-gray-700"></div>
+                       <div class="h-2 w-full rounded animate-pulse bg-gray-200 dark:bg-gray-700"></div>
+                       <div class="h-2 w-5/6 rounded animate-pulse bg-gray-200 dark:bg-gray-700"></div>
+                   </div>
+               </div>
+            </div>
+
+        </div>
+
+        <!-- FOOTER -->
+        <div id="dosa-footer" class="h-9 border-t flex items-center justify-center gap-4 text-[10px] mt-auto select-none bg-gray-50 border-gray-100 text-gray-500 dark:bg-gray-900 dark:border-gray-800 dark:text-gray-400">
+            <span class="flex items-center gap-1.5" title="Säkerhet">
+                <svg class="w-2.5 h-2.5 text-[#6B9080] dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                Beslutsstöd (ej beslut)
+            </span>
+            <span class="w-px h-3 bg-gray-200 dark:bg-gray-700"></span>
+            <span class="flex items-center gap-1.5" title="Lagring">
+                <span class="text-xs">🇸🇪</span>
+                Svensk datalagring
+            </span>
+        </div>
+
+        <!-- TOAST -->
+        <div id="toast" class="absolute bottom-16 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 whitespace-nowrap z-50 text-xs bg-gray-900 text-white dark:bg-white dark:text-gray-900 transition-all duration-300 opacity-0 translate-y-4 pointer-events-none">
+            <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+            <span id="toast-text">Kopierat till urklipp</span>
+        </div>
+
+    </div>
+
+    <!-- MAIN SCRIPT -->
+    <script>
+        // --- DATA ---
+        const EXAMPLE_TEXT = `Skolan har kontaktat oss angående Marcus, 9 år. Läraren beskriver att Marcus ofta kommer till skolan utan frukost och har vid flera tillfällen somnat under lektionerna. Han har också visat aggressivt beteende mot klasskamrater. Föräldrarna har inte svarat på skolans kontaktförsök.`;
+        const LOGO_URL = "https://raw.githubusercontent.com/GusHem/NordSym-Logga/refs/heads/main/Final%20logo%20no%20text.svg";
+        
+        const LAW_DATA = [
+            { code: '6 § LVU', title: 'Omedelbart omhändertagande', desc: 'Socialnämnden får besluta om att den som är under 20 år omedelbart skall omhändertas.' },
+            { code: '14 kap. 1 § SoL', title: 'Anmälan om missförhållanden', desc: 'Myndigheter är skyldiga att genast anmäla till socialnämnden om de får kännedom om barn som far illa.' },
+            { code: '11 kap. 1 § SoL', title: 'Utredning', desc: 'Socialnämnden ska utan dröjsmål inleda utredning av vad som genom ansökan eller på annat sätt har kommit till nämndens kännedom.' }
+        ];
+
+        const TRANSCRIPT_DATA = [
+            { speaker: 'SS', text: 'Tack för att ni kom idag. Jag vill börja med att fråga hur ni upplever situationen hemma just nu?' },
+            { speaker: 'VH1', text: 'Ja alltså, vi har ju märkt att han verkar väldigt trött på morgnarna. Det är svårt att få upp honom.' },
+            { speaker: 'SS', text: 'När ni säger svårt att få upp honom, hur brukar det gå till?' },
+            { speaker: 'VH2', text: 'Han vill inte gå upp. Han säger att han har ont i magen ofta.' }
+        ];
+
+        const CASES_DATA = [
+            { id: '1', name: 'Marcus L', age: 9, status: 'attention', progress: 39, days: 47, deadline: 73, color: 'bg-[#F4A261]', text: 'text-orange-500', bgSoft: 'bg-orange-500/10' },
+            { id: '2', name: 'Sara K', age: 14, status: 'track', progress: 85, days: 108, deadline: 12, color: 'bg-[#6B9080]', text: 'text-green-500', bgSoft: 'bg-green-500/10' },
+            { id: '3', name: 'Familjen A', age: 0, status: 'critical', progress: 15, days: 125, deadline: -5, color: 'bg-red-500', text: 'text-red-500', bgSoft: 'bg-red-500/10' }
+        ];
+
+        const FREDA_QUESTIONS = ['Har din partner förbjudit dig att träffa vänner?', 'Har din partner hotat dig?', 'Känner du dig rädd för din partner?'];
+
+        // --- APP STATE & LOGIC ---
+        window.app = {
+            state: {
+                view: null, // Null to allow clean init
+                isDark: false,
+                isOpen: true,
+                inputText: '',
+                isRecording: false,
+                transcriptIdx: 0,
+                journalData: null, // Holds content for the journal view
+                lastAnalysis: null // Temp storage for analysis result
+            },
+            
+            init() {
+                this.setupParticles();
+                this.setupClock();
+                this.renderMenu();
+                this.renderCases();
+                this.renderLaw();
+                this.renderFreda();
+                this.setupEventListeners();
+                this.switchView('onboarding'); // Explicit init call
+                
+                // Keyboard shortcut check
+                window.addEventListener('keydown', (e) => {
+                    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'p')) {
+                        e.preventDefault();
+                        this.toggleDosa();
+                    }
+                    if (e.key === 'Escape') {
+                        if (this.state.view === 'idle') this.toggleDosa(false);
+                        else this.switchView('idle');
+                    }
+                    if (e.metaKey || e.ctrlKey) {
+                        const map = {'1': 'input', '2': 'transcribe', '3': 'cases', '4': 'law', '5': 'freda', '6': 'journal'};
+                        if (map[e.key]) {
+                            e.preventDefault();
+                            this.switchView(map[e.key]);
+                        }
+                    }
+                });
+            },
+
+            setupParticles() {
+                const container = document.getElementById('particle-container');
+                const isDark = document.documentElement.classList.contains('dark');
+                const count = isDark ? 25 : 15;
+                container.innerHTML = '';
+                
+                for(let i=0; i<count; i++) {
+                    const p = document.createElement('div');
+                    p.className = 'particle bg-cyan-600/10 dark:bg-cyan-400/20 w-1 h-1';
+                    p.style.left = Math.random() * 100 + '%';
+                    p.style.top = (100 + Math.random() * 20) + '%';
+                    p.style.setProperty('--p-drift', (Math.random() - 0.5) * 50 + 'px');
+                    p.style.setProperty('--p-opacity', isDark ? 0.4 : 0.2);
+                    p.style.animationDuration = (15 + Math.random() * 15) + 's';
+                    p.style.animationDelay = (Math.random() * 5) + 's';
+                    container.appendChild(p);
+                }
+            },
+
+            setupClock() {
+                const update = () => {
+                    document.getElementById('clock').innerText = new Date().toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
+                };
+                setInterval(update, 1000);
+                update();
+            },
+
+            toggleDosa(forceState) {
+                const win = document.getElementById('dosa-window');
+                const backdrop = document.getElementById('dosa-backdrop');
+                const newState = forceState !== undefined ? forceState : !this.state.isOpen;
+                
+                this.state.isOpen = newState;
+                
+                // Reset to current dragged position if exists
+                const currentY = win.dataset.y || 0;
+                
+                if (newState) {
+                    win.style.display = 'flex';
+                    backdrop.style.display = 'block';
+                    // Trigger reflow
+                    void win.offsetWidth;
+                    win.style.opacity = '1';
+                    win.style.transform = `translate3d(-50%, ${currentY}px, 0) scale(1)`;
+                    backdrop.style.opacity = '1';
+                } else {
+                    win.style.opacity = '0';
+                    win.style.transform = `translate3d(-50%, ${currentY}px, 0) scale(0.95)`;
+                    backdrop.style.opacity = '0';
+                    setTimeout(() => {
+                        if(!this.state.isOpen) {
+                             win.style.display = 'none';
+                             backdrop.style.display = 'none';
+                        }
+                    }, 300);
+                }
+            },
+
+            switchView(viewName) {
+                // If same view, ignore (prevents startup race condition)
+                if (this.state.view === viewName) return;
+
+                // Animation out
+                const current = this.state.view ? document.getElementById(`view-${this.state.view}`) : null;
+                if (current) {
+                    current.classList.add('fade-exit');
+                    current.classList.add('fade-exit-active');
+                    setTimeout(() => {
+                        current.classList.add('hidden');
+                        current.classList.remove('fade-exit', 'fade-exit-active');
+                    }, 200);
+                }
+
+                this.state.view = viewName;
+                
+                // Trigger Renderers
+                if(viewName === 'journal') this.renderJournal();
+
+                // Animation in
+                const next = document.getElementById(`view-${viewName}`);
+                if (next) {
+                    next.classList.remove('hidden');
+                    next.classList.add('fade-enter');
+                    // Force reflow
+                    void next.offsetWidth; 
+                    next.classList.add('fade-enter-active');
+                    setTimeout(() => {
+                         next.classList.remove('fade-enter', 'fade-enter-active');
+                    }, 300);
+                }
+
+                // Show/Hide ESC hint
+                document.getElementById('esc-hint').classList.toggle('hidden', viewName === 'idle' || viewName === 'onboarding');
+            },
+
+            toggleTheme() {
+                document.documentElement.classList.toggle('dark');
+                this.state.isDark = !this.state.isDark;
+                this.setupParticles(); // Re-gen for color
+            },
+
+            renderMenu() {
+                const items = [
+                    { id: 'input', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', title: 'Analysera anmälan', desc: 'BBIC-mappning & risk', key: '⌘1', color: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-50 dark:bg-cyan-900/30', hover: 'group-hover:bg-cyan-600 group-hover:text-white' },
+                    { id: 'transcribe', icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z', title: 'Transkribera möte', desc: 'Spela in & sammanfatta', key: '⌘2', color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-900/30', hover: 'group-hover:bg-purple-600 group-hover:text-white' },
+                    { id: 'cases', icon: 'M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z', title: 'Aktiva ärenden', desc: 'Status & deadlines', key: '⌘3', color: 'text-[#6B9080] dark:text-green-400', bg: 'bg-green-50 dark:bg-green-900/30', hover: 'group-hover:bg-[#6B9080] group-hover:text-white' },
+                    { id: 'law', icon: 'M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3', title: 'Lagstöd (SoL/LVU)', desc: 'Sök paragrafer', key: '⌘4', color: 'text-gray-600 dark:text-gray-300', bg: 'bg-gray-100 dark:bg-gray-700', hover: 'group-hover:bg-gray-700 group-hover:text-white' },
+                    { id: 'freda', icon: 'M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z', title: 'FREDA-Screening', desc: 'Snabbkoll våldsutsatthet', key: '⌘5', color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/30', hover: 'group-hover:bg-red-500 group-hover:text-white' },
+                    { id: 'journal', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z', title: 'Generera Journal', desc: 'Sammanfatta anteckningar', key: '⌘6', color: 'text-orange-500 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/30', hover: 'group-hover:bg-orange-500 group-hover:text-white' }
+                ];
+
+                const container = document.getElementById('menu-grid');
+                container.innerHTML = items.map(item => `
+                    <button onclick="window.app.switchView('${item.id}')" class="w-full flex flex-col items-start p-3 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-800 transition-all group active:scale-[0.98] border border-transparent hover:border-gray-100 dark:hover:border-gray-700">
+                        <div class="flex justify-between w-full items-start mb-2">
+                            <div class="w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${item.bg} ${item.color} ${item.hover}">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="${item.icon}"></path></svg>
+                            </div>
+                            <span class="text-[10px] font-mono mt-1 text-gray-300 group-hover:text-gray-400 dark:text-gray-500 dark:group-hover:text-gray-300">${item.key}</span>
+                        </div>
+                        <span class="text-sm font-semibold leading-tight mb-1 text-gray-700 group-hover:text-gray-900 dark:text-gray-200 dark:group-hover:text-white">${item.title}</span>
+                        <p class="text-[10px] leading-snug text-gray-400 dark:text-gray-500">${item.desc}</p>
+                    </button>
+                `).join('');
+            },
+
+            renderCases() {
+                const container = document.getElementById('cases-list');
+                container.innerHTML = CASES_DATA.map(c => `
+                    <div class="p-4 rounded-xl border shadow-sm relative overflow-hidden group cursor-pointer bg-white border-gray-100 dark:bg-gray-800 dark:border-gray-700 transition-transform hover:scale-[1.01]">
+                        <div class="absolute left-0 top-0 bottom-0 w-1 ${c.color}"></div>
+                        <div class="flex justify-between items-start mb-2 pl-2">
+                            <div>
+                                <h3 class="text-sm font-bold text-gray-900 dark:text-gray-100">${c.name}, ${c.age} år</h3>
+                                <p class="text-[11px] flex items-center gap-1 mt-0.5 text-gray-500 dark:text-gray-400">
+                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                    Dag ${c.days}/120
+                                </p>
+                            </div>
+                            <div class="px-2 py-0.5 rounded text-[10px] font-medium border ${c.bgSoft} ${c.text} border-transparent">
+                                ${c.deadline < 0 ? 'Försenad' : c.deadline + ' dgr kvar'}
+                            </div>
+                        </div>
+                        <div class="pl-2">
+                            <div class="flex justify-between text-[10px] mb-1 text-gray-500 dark:text-gray-400"><span>Utredningsprogress</span><span>${c.progress}%</span></div>
+                            <div class="h-1.5 w-full rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
+                                <div class="h-full rounded-full ${c.color}" style="width: ${c.progress}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            },
+
+            renderLaw() {
+                const container = document.getElementById('law-list');
+                container.innerHTML = LAW_DATA.map(l => `
+                    <div class="p-4 rounded-xl border transition-colors cursor-pointer group bg-white border-gray-100 dark:bg-gray-800 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600">
+                        <div class="flex justify-between items-start mb-1">
+                            <span class="text-xs font-bold px-2 py-0.5 rounded bg-cyan-50 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400">${l.code}</span>
+                            <svg class="w-3.5 h-3.5 text-gray-400 group-hover:text-gray-900 dark:group-hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        </div>
+                        <h4 class="text-sm font-semibold mb-1 text-gray-900 dark:text-gray-100">${l.title}</h4>
+                        <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">${l.desc}</p>
+                    </div>
+                `).join('');
+            },
+
+            renderFreda() {
+                const container = document.getElementById('freda-questions');
+                container.innerHTML = FREDA_QUESTIONS.map(q => `
+                    <div class="flex items-center justify-between p-3 border rounded-lg bg-white border-gray-100 dark:bg-gray-800 dark:border-gray-700">
+                        <span class="text-sm text-gray-900 dark:text-gray-100">${q}</span>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-1 text-xs font-medium rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">Nej</button>
+                            <button class="px-3 py-1 text-xs font-medium rounded bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400">Ja</button>
+                        </div>
+                    </div>
+                `).join('');
+            },
+            
+            renderJournal() {
+                const container = document.getElementById('journal-preview');
+                const date = new Date().toISOString().split('T')[0];
+                
+                // If we have data, show the real note
+                if (this.state.journalData) {
+                    const { recommendation, flags } = this.state.journalData;
+                    container.innerHTML = `
+                        <div class="bg-white dark:bg-gray-800 p-4 shadow-sm border border-gray-100 dark:border-gray-700 rounded-lg text-left font-mono text-xs leading-relaxed text-gray-800 dark:text-gray-200">
+                            <div class="border-b border-gray-100 dark:border-gray-700 pb-2 mb-2 flex justify-between text-gray-400 uppercase tracking-wider text-[10px]">
+                                <span>ANTECKNING</span>
+                                <span>${date}</span>
+                            </div>
+                            <p class="mb-3"><strong class="text-cyan-700 dark:text-cyan-400">Bedömning:</strong> ${recommendation}</p>
+                            
+                            <p class="mb-1"><strong class="text-gray-900 dark:text-gray-100">Identifierade riskfaktorer:</strong></p>
+                            <ul class="list-none space-y-1 pl-1">
+                                ${flags.map(f => `
+                                    <li class="flex items-center gap-2">
+                                        <span class="w-1 h-1 rounded-full bg-orange-400"></span>
+                                        <span>${f.text} <span class="text-gray-400">(${f.cat})</span></span>
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                    `;
+                } 
+                // Otherwise show a "Example" template that looks real but is grayed/marked
+                else {
+                    container.innerHTML = `
+                         <div class="relative group cursor-default">
+                            <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-gray-100 dark:bg-gray-700 text-gray-500 text-[10px] px-2 py-0.5 rounded-full z-10 border border-gray-200 dark:border-gray-600">Förhandsvisning</div>
+                            <div class="bg-gray-50 dark:bg-gray-800/50 p-4 border border-dashed border-gray-200 dark:border-gray-700 rounded-lg text-left font-mono text-xs leading-relaxed text-gray-400 dark:text-gray-500 select-none">
+                                <div class="border-b border-gray-200 dark:border-gray-700 pb-2 mb-2 flex justify-between opacity-50">
+                                    <span>ANTECKNING</span>
+                                    <span>YYYY-MM-DD</span>
+                                </div>
+                                <p class="mb-3"><strong class="opacity-50">Bedömning:</strong> [Här visas AI-analysens rekommendation automatiskt...]</p>
+                                <p class="mb-1"><strong class="opacity-50">Riskfaktorer:</strong></p>
+                                <ul class="list-disc pl-4 opacity-50">
+                                    <li>Exempel på riskfaktor (Kategori)</li>
+                                    <li>Ytterligare observation...</li>
+                                </ul>
+                            </div>
+                        </div>
+                    `;
+                }
+            },
+
+            setupEventListeners() {
+                // Input handling
+                const input = document.getElementById('analysis-input');
+                const btn = document.getElementById('analyze-btn');
+                const paste = document.getElementById('paste-btn');
+
+                input.addEventListener('input', (e) => {
+                    this.state.inputText = e.target.value;
+                    if(e.target.value.length > 0) {
+                        btn.removeAttribute('disabled');
+                        // Show logo when ready
+                        btn.innerHTML = `<img src="${LOGO_URL}" class="w-4 h-4 logo-img" draggable="false"> Analysera med BBIC-AI`;
+                        btn.className = "w-full mt-3 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-sm bg-cyan-600 text-white hover:opacity-90 shadow-cyan-900/10";
+                    } else {
+                        btn.setAttribute('disabled', 'true');
+                        // Show sparkles when empty
+                        btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg> Analysera med BBIC-AI`;
+                        btn.className = "w-full mt-3 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-sm bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600";
+                    }
+                });
+
+                paste.addEventListener('click', () => {
+                    input.value = EXAMPLE_TEXT;
+                    input.dispatchEvent(new Event('input'));
+                });
+
+                btn.addEventListener('click', () => this.runAnalysis());
+
+                // Dosa Toggle
+                document.getElementById('dosa-toggle-btn').addEventListener('click', () => this.toggleDosa());
+                document.getElementById('close-btn-group').addEventListener('click', (e) => { e.stopPropagation(); this.toggleDosa(false); });
+                document.getElementById('dosa-backdrop').addEventListener('click', () => this.toggleDosa(false));
+                document.getElementById('desktop-area').addEventListener('click', () => this.toggleDosa(false));
+
+                // Theme Toggle
+                document.getElementById('theme-toggle').addEventListener('click', () => this.toggleTheme());
+
+                // Drag Logic
+                const win = document.getElementById('dosa-window');
+                const header = document.getElementById('dosa-header');
+                let isDragging = false, startX, startY, initialY = 0;
+
+                header.addEventListener('mousedown', (e) => {
+                    if(e.target.closest('button')) return;
+                    isDragging = true;
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    // Get current Y transform or default to 0
+                    const transform = win.style.transform;
+                    // We assume X is always -50%. We track Y.
+                    initialY = parseFloat(win.dataset.y || 0);
+                    win.style.transition = 'none';
+                });
+
+                window.addEventListener('mousemove', (e) => {
+                    if(!isDragging) return;
+                    const dy = e.clientY - startY;
+                    const newY = initialY + dy;
+                    win.style.transform = `translate3d(-50%, ${newY}px, 0) scale(1)`;
+                    win.dataset.y = newY;
+                });
+
+                window.addEventListener('mouseup', () => {
+                    if(isDragging) {
+                        isDragging = false;
+                        win.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s, background-color 0.3s, border-color 0.3s';
+                    }
+                });
+            },
+
+            runAnalysis() {
+                this.switchView('analyzing');
+                const steps = ['Läser anmälningstext...', 'Extraherar nyckelord och entiteter...', 'Mappar mot BBIC-triangeln...', 'Identifierar riskindikatorer...', 'Genererar beslutsunderlag...'];
+                const stepContainer = document.getElementById('analysis-steps');
+                const bar = document.getElementById('analysis-bar');
+                stepContainer.innerHTML = '';
+                bar.style.width = '0%';
+
+                let currentStep = 0;
+                
+                const addStep = (idx) => {
+                    stepContainer.innerHTML += `
+                        <div class="flex items-center gap-3">
+                            <div class="w-5 flex justify-center">
+                                ${idx < currentStep ? '<svg class="w-4 h-4 text-[#6B9080] dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>' : 
+                                  idx === currentStep ? '<div class="w-2 h-2 rounded-full bg-cyan-600 dark:bg-cyan-400 animate-pulse"></div>' : 
+                                  '<div class="w-2 h-2 rounded-full bg-gray-200 dark:bg-gray-700"></div>'}
+                            </div>
+                            <span class="${idx <= currentStep ? 'text-gray-800 dark:text-gray-100' : 'text-gray-300 dark:text-gray-600'} transition-colors">${steps[idx]}</span>
+                        </div>
+                    `;
+                };
+
+                const interval = setInterval(() => {
+                    currentStep++;
+                    stepContainer.innerHTML = ''; // Redraw
+                    for(let i=0; i<steps.length; i++) addStep(i);
+                    bar.style.width = ((currentStep + 1) / steps.length * 100) + '%';
+
+                    if(currentStep >= steps.length) {
+                        clearInterval(interval);
+                        setTimeout(() => this.showResult(), 600);
+                    }
+                }, 800);
+                
+                // Initial draw
+                for(let i=0; i<steps.length; i++) addStep(i);
+            },
+
+            showResult() {
+                this.switchView('result');
+                
+                // Save temp analysis
+                const recText = "Baserat på indikatorerna bör utredningen fördjupas kring skolsituationen och hemförhållandena. En prioritering är att boka ett enskilt samtal med pojken för att fånga barnets perspektiv, samt göra ett hembesök.";
+                const flags = [
+                    { text: 'utan frukost', cat: 'Grundläggande omsorg' },
+                    { text: 'aggressivt beteende', cat: 'Psykisk hälsa' },
+                    { text: 'inte svarat', cat: 'Brustet samarbete' }
+                ];
+                
+                this.state.lastAnalysis = { recommendation: recText, flags: flags };
+
+                // Animate Graph Lines
+                setTimeout(() => {
+                    document.getElementById('t-line-1').classList.add('animate');
+                    document.getElementById('t-line-1').style.strokeDashoffset = '0'; 
+                }, 500);
+                setTimeout(() => document.getElementById('t-line-2').classList.add('animate'), 800);
+                setTimeout(() => document.getElementById('t-line-3').classList.add('animate'), 1100);
+
+                // Stream Text
+                const target = document.getElementById('recommendation-text');
+                target.innerHTML = '';
+                let i = 0;
+                const type = setInterval(() => {
+                    target.innerHTML = recText.slice(0, i) + '<span class="animate-pulse inline-block w-1.5 h-3 bg-cyan-600/60 dark:bg-cyan-400/60 ml-0.5 align-middle"></span>';
+                    i++;
+                    if(i > recText.length) {
+                        clearInterval(type);
+                        target.innerHTML = recText; // remove cursor
+                    }
+                }, 15);
+
+                // Flags
+                const fCont = document.getElementById('flags-container');
+                fCont.innerHTML = '<p class="text-[10px] font-bold uppercase tracking-wide px-1 text-gray-500 dark:text-gray-400">Riskindikatorer</p>';
+                
+                flags.forEach((f, idx) => {
+                    setTimeout(() => {
+                        const el = document.createElement('div');
+                        el.className = "flex items-start gap-3 p-3 rounded-lg border shadow-sm bg-white border-gray-100 dark:bg-gray-800 dark:border-gray-700 transition-all duration-500 opacity-0 translate-x-[-10px]";
+                        el.innerHTML = `
+                            <svg class="w-3.5 h-3.5 text-[#F4A261] mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                            <div class="text-xs">
+                                <span class="font-semibold text-gray-900 dark:text-gray-100">"${f.text}"</span>
+                                <span class="block mt-0.5 text-gray-500 dark:text-gray-400">${f.cat}</span>
+                            </div>
+                        `;
+                        fCont.appendChild(el);
+                        // Trigger reflow for anim
+                        void el.offsetWidth;
+                        el.classList.remove('opacity-0', 'translate-x-[-10px]');
+                    }, 1500 + (idx * 200));
+                });
+            },
+
+            resetAnalysis() {
+                this.switchView('input');
+                document.getElementById('analysis-input').value = '';
+                document.getElementById('analyze-btn').setAttribute('disabled', 'true');
+                // Reset button to sparkle
+                document.getElementById('analyze-btn').innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"></path></svg> Analysera med BBIC-AI`;
+                document.getElementById('analyze-btn').className = "w-full mt-3 py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-sm bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800 dark:text-gray-600";
+            },
+
+            copyResult() {
+                const text = JSON.stringify({ result: this.state.lastAnalysis }, null, 2);
+                
+                // ALSO: Populate the Journal!
+                if (this.state.lastAnalysis) {
+                    this.state.journalData = this.state.lastAnalysis;
+                }
+                
+                const showToast = (msg) => {
+                    const btnText = document.getElementById('copy-text');
+                    const btnIcon = document.getElementById('copy-icon');
+                    const originalText = btnText.innerText;
+                    const toastText = document.getElementById('toast-text');
+                    
+                    btnText.innerText = 'Kopierad & Sparad';
+                    toastText.innerText = msg || "Sparad till Journal & Urklipp";
+                    // Check icon
+                    btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>';
+                    
+                    const toast = document.getElementById('toast');
+                    toast.classList.remove('opacity-0', 'translate-y-4', 'pointer-events-none');
+                    
+                    setTimeout(() => {
+                        toast.classList.add('opacity-0', 'translate-y-4', 'pointer-events-none');
+                        btnText.innerText = originalText;
+                        // Copy icon
+                        btnIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path>';
+                    }, 2000);
+                };
+
+                // SAFE COPY (Fallback method included)
+                const doCopy = async () => {
+                    try {
+                        await navigator.clipboard.writeText(text);
+                        showToast();
+                    } catch (err) {
+                        // Fallback
+                        const ta = document.createElement("textarea");
+                        ta.value = text;
+                        ta.style.position="fixed"; ta.style.opacity="0";
+                        document.body.appendChild(ta);
+                        ta.focus(); ta.select();
+                        try {
+                            document.execCommand('copy');
+                            showToast();
+                        } catch (e) {
+                            showToast("Sparad till Journal (Kunde ej kopiera till urklipp)");
+                        }
+                        document.body.removeChild(ta);
+                    }
+                };
+                
+                doCopy();
+            },
+
+            toggleRecording() {
+                this.state.isRecording = !this.state.isRecording;
+                const dot = document.getElementById('rec-dot');
+                const btn = document.getElementById('record-btn');
+                const wave = document.getElementById('waveform-container');
+                const log = document.getElementById('transcript-log');
+                
+                if(this.state.isRecording) {
+                    dot.classList.add('bg-red-500', 'animate-pulse');
+                    dot.classList.remove('bg-gray-600');
+                    btn.classList.add('bg-white', 'text-gray-900');
+                    btn.classList.remove('bg-cyan-600', 'text-white');
+                    btn.innerHTML = '<svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>';
+                    
+                    // Waveform
+                    wave.innerHTML = '';
+                    for(let i=0; i<30; i++) {
+                        const bar = document.createElement('div');
+                        bar.className = "w-1 rounded-full opacity-60 bg-cyan-600 dark:bg-cyan-400 mx-px";
+                        bar.style.animation = `waveform 0.5s ease-in-out infinite`;
+                        bar.style.setProperty('--h-target', (Math.random() * 24 + 4) + 'px');
+                        bar.style.animationDelay = (i * 0.05) + 's';
+                        wave.appendChild(bar);
+                    }
+                    
+                    // Timer logic can go here (simplified for space)
+                    document.getElementById('timer').innerText = "00:04:12";
+                    this.state.transcriptIdx = 0;
+                    log.innerHTML = '<p class="text-[10px] font-bold uppercase tracking-wide mb-2 text-gray-500 dark:text-gray-400">Live Transkription</p>'; // Reset
+
+                    // Simulated feed
+                    this.recInterval = setInterval(() => {
+                        if(this.state.transcriptIdx < TRANSCRIPT_DATA.length) {
+                            const msg = TRANSCRIPT_DATA[this.state.transcriptIdx];
+                            const el = document.createElement('div');
+                            el.className = "flex gap-3 opacity-0 translate-y-2 transition-all duration-300";
+                            el.innerHTML = `
+                                <div class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${msg.speaker === 'SS' ? 'bg-cyan-600 text-white dark:bg-cyan-600' : 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'}">${msg.speaker}</div>
+                                <div class="flex-1"><p class="text-xs leading-relaxed p-2 rounded-lg rounded-tl-none border shadow-sm bg-white border-gray-100 text-gray-900 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100">${msg.text}</p></div>
+                            `;
+                            log.appendChild(el);
+                            // Trigger reflow
+                            void el.offsetWidth;
+                            el.classList.remove('opacity-0', 'translate-y-2');
+                            el.scrollIntoView({behavior: "smooth"});
+                            this.state.transcriptIdx++;
+                        }
+                    }, 2500);
+
+                } else {
+                    dot.classList.remove('bg-red-500', 'animate-pulse');
+                    dot.classList.add('bg-gray-600');
+                    btn.classList.remove('bg-white', 'text-gray-900');
+                    btn.classList.add('bg-cyan-600', 'text-white');
+                    btn.innerHTML = '<svg class="w-5 h-5 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+                    wave.innerHTML = '<span class="text-gray-500 text-xs">Redo att spela in</span>';
+                    document.getElementById('timer').innerText = "00:00:00";
+                    clearInterval(this.recInterval);
+                }
+            }
+        };
+
+        // Start App
+        window.onload = () => window.app.init();
+
+    </script>
+</body>
+</html>
